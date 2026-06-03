@@ -37,7 +37,8 @@
           </label>
           <span id="lan-status">🔴 局域网: 关闭</span>
         </div>
-        <button class="toolbar-btn" id="refresh-lan-btn" title="刷新发现">🔄 搜索设备</button>
+        <button class="toolbar-btn" id="refresh-lan-btn" title="刷新发现">🔄 <span data-i18n="refreshLan">搜索设备</span></button>
+        <button class="toolbar-btn" id="lang-toggle-btn" title="中/EN" style="font-size:13px">🇨🇳 中文</button>
       </div>
     </header>
 
@@ -198,6 +199,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
   <script src="/script-editor.js"></script>
   <script src="/mindmap.js"></script>

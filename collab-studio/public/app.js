@@ -307,6 +307,10 @@ lanCb.addEventListener('change', () => {
   socket.emit('lan-toggle', lanCb.checked);
 });
 refreshLanBtn.addEventListener('click', () => socket.emit('refresh-lan'));
+document.getElementById('lang-toggle-btn').addEventListener('click', () => {
+  toggleLang();
+  document.getElementById('lang-toggle-btn').textContent = currentLang === 'zh' ? '🇨🇳 中文' : '🇬🇧 English';
+});
 
 // ─── 多设备 UI ──────────────────────────────────────────
 function updatePeersUI() {

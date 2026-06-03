@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>协作创作工作室</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- ─── 入场 ─── -->
+  <div id="join-overlay">
+    <div class="join-card">
+      <h1>🎬 协作创作工作室</h1>
+      <p>局域网 · 实时协作 · 剧本 / 思维导图 / 故事</p>
+      <div class="join-input-group">
+        <input type="text" id="name-input" placeholder="你的名字..." maxlength="12" autofocus>
+        <button id="join-btn">进入工作室</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 主界面 ─── -->
+  <div id="app" style="display:none">
+    <!-- 顶栏 -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <span class="app-title">🎬 创作工作室</span>
+        <span class="badge" id="self-badge">👤 我</span>
+        <span class="badge" id="peer-badge" style="display:none"></span>
+      </div>
+      <div class="topbar-right">
+        <div class="lan-toggle">
+          <label class="switch">
+            <input type="checkbox" id="lan-toggle-cb">
+            <span class="slider"></span>
+          </label>
+          <span id="lan-status">🔴 局域网: 关闭</span>
+        </div>
+        <button class="toolbar-btn" id="refresh-lan-btn" title="刷新发现">🔄 搜索设备</button>
+      </div>
+    </header>
+
+    <!-- 导航 + 主体 -->
+    <div id="main-layout">
+      <!-- 左侧导航 -->
+      <nav id="left-nav">
+        <button class="nav-btn active" data-module="projects" title="我的项目">
+          <span class="nav-icon">📂</span>
+          <span class="nav-label">项目</span>
+        </button>
+        <button class="nav-btn" data-module="script" title="剧本编辑">
+          <span class="nav-icon">📜</span>
+          <span class="nav-label">剧本</span>
+        </button>
+        <button class="nav-btn" data-module="mindmap" title="思维导图">
+          <span class="nav-icon">🧠</span>
+          <span class="nav-label">导图</span>
+        </button>
+        <button class="nav-btn" data-module="story" title="故事写作">
+          <span class="nav-icon">📖</span>
+          <span class="nav-label">故事</span>
+        </button>
+        <button class="nav-btn" data-module="devices" title="设备管理">
+          <span class="nav-icon">💻</span>
+          <span class="nav-label">设备</span>
+        </button>
+        <div class="nav-spacer"></div>
+        <button class="nav-btn" id="help-btn" title="帮助">
+          <span class="nav-icon">❓</span>
+          <span class="nav-label">帮助</span>
+        </button>
+      </nav>
+
+      <!-- 内容区 -->
+      <main id="content-area">
+        <!-- 项目面板 -->
+        <section id="panel-projects" class="module-panel active">
+          <div class="panel-header">
+            <h2>📂 我的项目</h2>
+            <div class="panel-actions">
+              <button class="toolbar-btn" id="new-script-btn">+ 剧本</button>
+              <button class="toolbar-btn" id="new-mindmap-btn">+ 思维导图</button>
+              <button class="toolbar-btn" id="new-story-btn">+ 故事</button>
+            </div>
+          </div>
+          <div id="project-list" class="project-grid"></div>
+        </section>
+
+        <!-- 剧本面板 -->
+        <section id="panel-script" class="module-panel">
+          <div class="panel-header">
+            <h2 id="script-title">📜 剧本编辑器</h2>
+            <div class="panel-actions">
+              <button class="toolbar-btn" id="script-add-act">+ 幕</button>
+              <button class="toolbar-btn" id="script-back">← 返回项目</button>
+            </div>
+          </div>
+          <div id="script-editor" class="module-body">
+            <div class="editor-placeholder">请选择或创建一个剧本项目</div>
+          </div>
+        </section>
+
+        <!-- 思维导图面板 -->
+        <section id="panel-mindmap" class="module-panel">
+          <div class="panel-header">
+            <h2 id="mindmap-title">🧠 思维导图</h2>
+            <div class="panel-actions">
+              <button class="toolbar-btn" id="mindmap-add-node">+ 节点</button>
+              <button class="toolbar-btn" id="mindmap-back">← 返回项目</button>
+            </div>
+          </div>
+          <div id="mindmap-editor" class="module-body">
+            <canvas id="mindmap-canvas"></canvas>
+            <div id="mindmap-toolbar">
+              <button class="tool-btn" id="mm-add-root">➕ 根节点</button>
+              <button class="tool-btn" id="mm-add-child">👶 子节点</button>
+              <button class="tool-btn" id="mm-add-sibling">↔️ 同级节点</button>
+              <button class="tool-btn danger" id="mm-delete-node">🗑️ 删除选中</button>
+              <input type="color" id="mm-color" value="#4fc3f7" title="节点颜色">
+            </div>
+          </div>
+        </section>
+
+        <!-- 故事面板 -->
+        <section id="panel-story" class="module-panel">
+          <div class="panel-header">
+            <h2 id="story-title">📖 故事编辑器</h2>
+            <div class="panel-actions">
+              <button class="toolbar-btn" id="story-add-chapter">+ 章节</button>
+              <button class="toolbar-btn" id="story-back">← 返回项目</button>
+            </div>
+          </div>
+          <div id="story-editor" class="module-body">
+            <div id="story-layout">
+              <aside id="story-chapter-list"></aside>
+              <div id="story-content">
+                <textarea id="story-textarea" placeholder="在这里写故事...&#10;&#10;支持多段落、对白、描写..." rows="20"></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设备面板 -->
+        <section id="panel-devices" class="module-panel">
+          <div class="panel-header">
+            <h2>💻 设备管理</h2>
+          </div>
+          <div id="device-list" class="device-grid"></div>
+        </section>
+      </main>
+
+      <!-- 右侧面板 -->
+      <aside id="right-sidebar">
+        <!-- 对方信息 -->
+        <section id="peer-section">
+          <h3>🤝 协作对象</h3>
+          <div id="peer-status-area" class="status-card">
+            <div class="status-none">🔄 等待发现设备…<br><small>双方都打开"开启局域网"</small></div>
+          </div>
+        </section>
+
+        <!-- 发送项目 -->
+        <section id="transfer-section" style="display:none">
+          <h3>📤 发送项目给对方</h3>
+          <div id="transfer-list"></div>
+          <button class="toolbar-btn" id="transfer-btn" disabled>发送选中项目</button>
+        </section>
+
+        <!-- 对方备注 -->
+        <section id="note-section" style="display:none">
+          <h3>📝 对方备注</h3>
+          <textarea id="peer-note-input" placeholder="给对方写个备注..." rows="2"></textarea>
+          <button class="toolbar-btn" id="peer-note-save">保存备注</button>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <!-- 接收项目弹窗 -->
+  <div id="receive-modal" class="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <h3>📥 收到项目</h3>
+      <p id="receive-info"></p>
+      <div id="receive-list"></div>
+      <button class="toolbar-btn" id="receive-ok">知道了</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+  <script src="/script-editor.js"></script>
+  <script src="/mindmap.js"></script>
+  <script src="/story-editor.js"></script>
+  <script src="/devices.js"></script>
+</body>
+</html>

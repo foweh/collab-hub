@@ -12,6 +12,7 @@ const WebSocket = require('ws');
 const HTTP_PORT = parseInt(process.env.PORT) || 3000;
 const UDP_PORT = 41234;
 const BRIDGE_PATH = '/bridge';
+const SCAN_DURATION = 5 * 60 * 1000; // 5分钟
 
 const SERVER_ID = uuid().slice(0, 8);
 let SERVER_NAME = os.hostname();
@@ -20,6 +21,61 @@ let SERVER_NAME = os.hostname();
 // peers: Map<serverId, { ws, name, ip, port, connected, note, incoming }>
 const peers = new Map();
 let projects = [];
+
+// ─── 扫描状态 ────────────────────────────────────────────
+let scanState = 'idle';   // 'idle' | 'scanning' | 'found' | 'nobody'
+let scanTimer = null;
+let scanInterval = null;
+
+function startScan() {
+  scanState = 'scanning';
+  broadcastScanState();
+
+  // 5分钟定时器
+  scanTimer = setTimeout(() => {
+    if (peers.size === 0) {
+      scanState = 'nobody';
+      broadcastScanState();
+      // 停止广播
+      if (scanInterval) {
+        clearInterval(scanInterval);
+        scanInterval = null;
+      }
+      console.log('[扫描] 5分钟结束，未发现设备');
+    }
+  }, SCAN_DURATION);
+}
+
+function stopScan() {
+  if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  if (scanState === 'scanning') scanState = 'idle';
+  broadcastScanState();
+}
+
+function foundPeer() {
+  if (scanState === 'scanning') {
+    scanState = 'found';
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+    broadcastScanState();
+    console.log('[扫描] ✅ 发现设备，扫描结束');
+  }
+}
+
+function broadcastScanState() {
+  io.emit('scan-state', { state: scanState });
+}
+
+// ─── 聊天记录 ────────────────────────────────────────────
+const chatHistory = []; // [{ userName, text, time }]
+const MAX_CHAT = 200;
+
+function addChat(userName, text) {
+  const msg = { userName, text, time: Date.now() };
+  chatHistory.push(msg);
+  if (chatHistory.length > MAX_CHAT) chatHistory.splice(0, 100);
+  return msg;
+}
 
 // ─── 消息去重（防回环） ──────────────────────────────────
 const seenMessages = new Map(); // msgId → timestamp
@@ -140,6 +196,7 @@ bridgeWss.on('connection', (ws, req) => {
         };
         peers.set(sid, p);
         console.log(`[桥接] ✅ 已接受 ${msg.name} 连接`);
+        foundPeer(); // 扫描状态下标记已发现
 
         // 同步项目给对方
         sendToPeer(ws, { type: 'projects-sync', projects: getLocalProjects() });
@@ -178,6 +235,7 @@ function connectToPeer(serverId, name, ip, port) {
     const p = { ws, name, ip, port, connected: true, note: '', incoming: false };
     peers.set(serverId, p);
     console.log(`[桥接] ✅ 已连接到 ${name}`);
+    foundPeer(); // 扫描状态下标记已发现
 
     ws.send(JSON.stringify({ type: 'handshake', serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT }));
     broadcastPeers();
@@ -245,6 +303,13 @@ function handleBridgeMessage(ws, msg) {
       }
       break;
 
+    case 'chat':
+      // 来自 peer 的聊天消息 → 广播给本机所有浏览器
+      if (msg.msg) io.emit('chat-message', msg.msg);
+      // 继续转发给其他 peer
+      broadcastToPeers(msg, fromId);
+      break;
+
     case 'forward-to-peer':
       broadcastToPeers(msg.payload, fromId);
       break;
@@ -308,6 +373,7 @@ io.on('connection', (socket) => {
   socket.emit('init', {
     serverId: SERVER_ID, serverName: SERVER_NAME,
     projects: getLocalProjects(), peers: peerList,
+    scanState, chatHistory: chatHistory.slice(-50),
   });
 
   socket.on('join', (name) => {
@@ -326,7 +392,36 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('refresh-lan', () => broadcastDiscover());
+  socket.on('lan-toggle', (on) => {
+    if (on && scanState === 'idle') {
+      startScan();
+      broadcastDiscover();
+      scanInterval = setInterval(broadcastDiscover, 5000);
+    } else if (!on) {
+      stopScan();
+    }
+  });
+
+  socket.on('refresh-lan', () => {
+    if (scanState === 'nobody' || scanState === 'idle') {
+      startScan();
+      broadcastDiscover();
+      scanInterval = setInterval(broadcastDiscover, 5000);
+    } else {
+      broadcastDiscover();
+    }
+  });
+
+  // ── 群聊 ──
+  socket.on('chat-message', (text) => {
+    const name = socket.userName || SERVER_NAME;
+    if (!text || !text.trim()) return;
+    const msg = addChat(name, text.trim());
+    // 广播给所有本机浏览器
+    io.emit('chat-message', msg);
+    // 转发给所有 peer
+    broadcastToPeers({ type: 'chat', msg }, null);
+  });
 
   socket.on('peer-note', ({ serverId, note }) => {
     if (peers.has(serverId)) {

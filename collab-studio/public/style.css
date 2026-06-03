@@ -549,6 +549,99 @@ body {
   font-size: 13px;
 }
 
+/* ─── 群聊 ─── */
+#chat-section {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 8px;
+}
+#chat-section h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+#chat-msgs {
+  height: 140px;
+  overflow-y: auto;
+  background: var(--surface2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+#chat-msgs::-webkit-scrollbar { width: 3px; }
+#chat-msgs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.chat-line {
+  margin-bottom: 3px;
+  word-break: break-word;
+}
+.chat-line .cl-name {
+  font-weight: 600;
+  color: var(--accent);
+  margin-right: 4px;
+}
+.chat-line .cl-time {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.chat-line.cl-system {
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  font-size: 11px;
+}
+.chat-input-row {
+  display: flex;
+  gap: 4px;
+}
+#chat-input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+#chat-input:focus { border-color: var(--accent); }
+#chat-send-btn {
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+#chat-send-btn:hover { opacity: 0.85; }
+
+/* ─── 扫描状态提示 ─── */
+.scan-status {
+  font-size: 12px;
+  text-align: center;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.scan-status.scanning {
+  background: #1b3a1b;
+  color: #66bb6a;
+}
+.scan-status.nobody {
+  background: #3a1b1b;
+  color: #ff5252;
+}
+.scan-status.found {
+  color: var(--green);
+}
+
 /* ─── 滚动条 ─── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

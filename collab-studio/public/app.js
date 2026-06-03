@@ -33,6 +33,37 @@ const receiveModal    = $('#receive-modal');
 const receiveInfo     = $('#receive-info');
 const receiveList     = $('#receive-list');
 const receiveOk       = $('#receive-ok');
+const chatMsgs        = $('#chat-msgs');
+const chatInput       = $('#chat-input');
+const chatSendBtn     = $('#chat-send-btn');
+
+// ─── 扫描状态 ────────────────────────────────────────────
+let scanState = 'idle';
+
+function showScanStatus() {
+  if (scanState === 'scanning') {
+    peerStatusArea.innerHTML += `<div class="scan-status scanning">🔍 正在扫描…还剩 ${getScanRemaining()}</div>`;
+  } else if (scanState === 'nobody') {
+    peerStatusArea.innerHTML += `<div class="scan-status nobody">⏰ 扫描结束，未发现设备</div>`;
+    // 自动关闭局域网开关
+    lanCb.checked = false;
+    lanStatus.textContent = '🔴 局域网: 关闭';
+  } else if (scanState === 'found') {
+    // 已被 updatePeersUI 处理
+  }
+}
+
+let scanStartTime = null;
+
+function getScanRemaining() {
+  if (!scanStartTime) return '<1 分钟';
+  const elapsed = Date.now() - scanStartTime;
+  const remaining = Math.ceil((5 * 60 * 1000 - elapsed) / 1000);
+  if (remaining <= 0) return '即将结束';
+  const min = Math.floor(remaining / 60);
+  const sec = remaining % 60;
+  return `${min}分${sec}秒`;
+}
 
 // ─── 入场 ────────────────────────────────────────────────
 joinBtn.addEventListener('click', join);
@@ -54,8 +85,11 @@ socket.on('init', (data) => {
   serverName = data.serverName;
   projects = data.projects || [];
   peers = data.peers || [];
+  scanState = data.scanState || 'idle';
   renderProjects();
   updatePeersUI();
+  // 加载聊天历史
+  if (data.chatHistory) data.chatHistory.forEach(addChatLine);
 });
 
 socket.on('bridge-message', (msg) => {
@@ -104,6 +138,29 @@ socket.on('transfer-sent', (data) => {
 
 socket.on('transfer-failed', (data) => {
   alert(`❌ 发送失败: ${data.reason}`);
+});
+
+// ── 扫描状态 ──
+socket.on('scan-state', (data) => {
+  scanState = data.state;
+  if (data.state === 'scanning') {
+    scanStartTime = Date.now();
+    // 定期更新倒计时
+    if (window.scanTimer) clearInterval(window.scanTimer);
+    window.scanTimer = setInterval(() => {
+      if (scanState === 'scanning' && peers.length === 0) {
+        updatePeersUI();
+      } else {
+        clearInterval(window.scanTimer);
+      }
+    }, 1000);
+  }
+  updatePeersUI();
+});
+
+// ── 群聊 ──
+socket.on('chat-message', (msg) => {
+  addChatLine(msg);
 });
 
 // ─── 导航切换 ────────────────────────────────────────────
@@ -204,6 +261,7 @@ function openProject(p) {
 // ─── 局域网开关 ──────────────────────────────────────────
 lanCb.addEventListener('change', () => {
   lanStatus.textContent = lanCb.checked ? '🟢 局域网: 开启' : '🔴 局域网: 关闭';
+  if (lanCb.checked) scanStartTime = Date.now();
   socket.emit('lan-toggle', lanCb.checked);
 });
 refreshLanBtn.addEventListener('click', () => socket.emit('refresh-lan'));
@@ -211,7 +269,6 @@ refreshLanBtn.addEventListener('click', () => socket.emit('refresh-lan'));
 // ─── 多设备 UI ──────────────────────────────────────────
 function updatePeersUI() {
   if (peers.length > 0) {
-    // 显示所有在线设备
     let html = '';
     peers.forEach(p => {
       const noteHtml = p.note ? `<br><small>📝 ${esc(p.note)}</small>` : '';
@@ -222,19 +279,25 @@ function updatePeersUI() {
       </div>`;
     });
     peerStatusArea.innerHTML = `<div class="status-connected">🟢 ${peers.length} 台设备在线</div>${html}`;
-
-    // badge
     peerBadge.style.display = 'inline';
     peerBadge.className = 'badge online';
     peerBadge.textContent = `🤝 ${peers.length} 在线`;
     transferSection.style.display = 'block';
     noteSection.style.display = 'block';
-
-    // 如果有多个 peer，在备注区加选择器
     updateNoteSection();
     updateTransferList();
   } else {
-    peerStatusArea.innerHTML = `<div class="status-none">🔄 等待发现设备…<br><small>多台电脑都打开"开启局域网"</small></div>`;
+    let html = `<div class="status-none">🔄 等待发现设备…<br><small>多台电脑都打开"开启局域网"</small></div>`;
+    // 扫描状态提示
+    if (scanState === 'scanning') {
+      html += `<div class="scan-status scanning">🔍 正在扫描…还剩 ${getScanRemaining()}</div>`;
+    } else if (scanState === 'nobody') {
+      html += `<div class="scan-status nobody">⏰ 扫描 5 分钟结束，未发现设备</div>`;
+      // 自动关闭开关
+      lanCb.checked = false;
+      lanStatus.textContent = '🔴 局域网: 关闭';
+    }
+    peerStatusArea.innerHTML = html;
     peerBadge.style.display = 'inline';
     peerBadge.className = 'badge offline';
     peerBadge.textContent = '💻 未连接';
@@ -339,7 +402,34 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 86400000)} 天前`;
 }
 
-// 返回项目列表
+// ─── 群聊 ────────────────────────────────────────────────
+function addChatLine(msg) {
+  const d = document.createElement('div');
+  d.className = 'chat-line';
+  if (msg.system) {
+    d.classList.add('cl-system');
+    d.textContent = msg.text;
+  } else {
+    const t = new Date(msg.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    d.innerHTML = `<span class="cl-name">${esc(msg.userName)}</span>${esc(msg.text)}<span class="cl-time">${t}</span>`;
+  }
+  chatMsgs.appendChild(d);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+}
+
+function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text) return;
+  socket.emit('chat-message', text);
+  chatInput.value = '';
+}
+
+chatSendBtn.addEventListener('click', sendChat);
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat();
+});
+
+// ─── 返回项目列表 ────────────────────────────────────────
 document.querySelectorAll('#script-back, #mindmap-back, #story-back').forEach(btn => {
   btn.addEventListener('click', () => {
     navBtns.forEach(b => b.classList.remove('active'));

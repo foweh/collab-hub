@@ -55,6 +55,48 @@ function showScanStatus() {
 
 let scanStartTime = null;
 
+// ─── 操作锁系统 ─────────────────────────────────────────
+// lockKey → userName，如 "mindmap-node:n5" → "小明"
+const locks = new Map();
+
+function lockKey(type, id) { return `${type}:${id}`; }
+
+function isLocked(type, id) { return locks.has(lockKey(type, id)); }
+
+function getLockUser(type, id) { return locks.get(lockKey(type, id)) || null; }
+
+// 获取锁（零延迟广播）
+function acquireLock(type, id) {
+  socket.emit('focus-lock', { type, id });
+}
+
+// 释放锁
+function releaseLock(type, id) {
+  socket.emit('focus-release', { type, id });
+}
+
+// Socket 事件监听
+socket.on('focus-lock', ({ type, id, user }) => {
+  if (user !== myName) {
+    locks.set(lockKey(type, id), user);
+    // 通知当前模块刷新锁状态
+    window.dispatchEvent(new CustomEvent('locks-changed'));
+  }
+});
+
+socket.on('focus-release', ({ type, id, user }) => {
+  locks.delete(lockKey(type, id));
+  window.dispatchEvent(new CustomEvent('locks-changed'));
+});
+
+socket.on('focus-release-all', ({ user }) => {
+  // 释放某个用户的所有锁
+  for (const [key, u] of locks) {
+    if (u === user) locks.delete(key);
+  }
+  window.dispatchEvent(new CustomEvent('locks-changed'));
+});
+
 function getScanRemaining() {
   if (!scanStartTime) return '<1 分钟';
   const elapsed = Date.now() - scanStartTime;

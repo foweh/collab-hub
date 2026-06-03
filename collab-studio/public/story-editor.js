@@ -73,6 +73,32 @@ function renderContent() {
   storyTextarea.value = ch.content || '';
 }
 
+// 锁：编辑故事内容
+storyTextarea.addEventListener('focus', () => {
+  const lockId = `ch_${currentChapterIdx}`;
+  if (isLocked('story-content', lockId)) {
+    storyTextarea.blur();
+    alert(`🔒 ${getLockUser('story-content', lockId)} 正在编辑本章`);
+    return;
+  }
+  acquireLock('story-content', lockId);
+});
+storyTextarea.addEventListener('blur', () => {
+  releaseLock('story-content', `ch_${currentChapterIdx}`);
+});
+
+// 监听锁变化：如果被锁定，给出提示
+window.addEventListener('locks-changed', () => {
+  const lockId = `ch_${currentChapterIdx}`;
+  if (isLocked('story-content', lockId) && document.activeElement === storyTextarea) {
+    const user = getLockUser('story-content', lockId);
+    if (user && user !== myName) {
+      storyTextarea.blur();
+      alert(`🔒 ${user} 正在编辑本章`);
+    }
+  }
+});
+
 // 内容变更
 let contentTimer = null;
 storyTextarea.addEventListener('input', () => {

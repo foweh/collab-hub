@@ -212,10 +212,29 @@ io.on('connection', (socket) => {
       socket.emit('transfer-sent', { count: toSend.length, to: tp.name });
     } else socket.emit('transfer-failed', { reason: '对方不在线' });
   });
+  // ── 操作锁：零延迟广播谁在编辑什么 ──
+  socket.on('focus-lock', ({ type, id }) => {
+    const name = socket.userName || SERVER_NAME;
+    socket.broadcast.emit('focus-lock', { type, id, user: name });
+    broadcastToPeers({ type: 'focus-lock', lockType: type, lockId: id, user: name }, null);
+  });
+
+  socket.on('focus-release', ({ type, id }) => {
+    const name = socket.userName || SERVER_NAME;
+    socket.broadcast.emit('focus-release', { type, id, user: name });
+    broadcastToPeers({ type: 'focus-release', lockType: type, lockId: id, user: name }, null);
+  });
+
   socket.on('realtime-event', (data) => {
     const msg = { type: 'realtime', _msgId: uuid(), origin: SERVER_ID, event: data.event, data: data.payload };
     socket.broadcast.emit(data.event, data.payload);
     broadcastToPeers(msg, null);
+  });
+
+  // 断开连接时自动释放此 socket 的所有锁
+  socket.on('disconnect', () => {
+    // 通知所有 peer 释放此用户的操作锁
+    broadcastToPeers({ type: 'focus-release-all', user: socket.userName || SERVER_NAME }, null);
   });
 });
 
@@ -239,6 +258,18 @@ function handleBridgeMessage(fromId, msg) {
       broadcastToBrowsers({ type: 'realtime', origin: msg.origin, event: msg.event, data: msg.data });
       if (msg.origin !== SERVER_ID) io.emit(msg.event, msg.data);
       if (msg._msgId) broadcastToPeers(msg, fromId);
+      break;
+    case 'focus-lock':
+      io.emit('focus-lock', { type: msg.lockType, id: msg.lockId, user: msg.user });
+      broadcastToPeers(msg, fromId);
+      break;
+    case 'focus-release':
+      io.emit('focus-release', { type: msg.lockType, id: msg.lockId, user: msg.user });
+      broadcastToPeers(msg, fromId);
+      break;
+    case 'focus-release-all':
+      io.emit('focus-release-all', { user: msg.user });
+      broadcastToPeers(msg, fromId);
       break;
     case 'chat':
       if (msg.msg) io.emit('chat-message', msg.msg);

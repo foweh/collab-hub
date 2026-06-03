@@ -83,6 +83,42 @@ function renderScript() {
   bindScriptEvents();
 }
 
+// ─── 输入框锁机制 ────────────────────────────────────────
+function addLockToInput(el, type) {
+  const ai = el.dataset.ai, si = el.dataset.si, di = el.dataset.di;
+  const lockId = `${ai}_${si}_${di}`;
+
+  el.addEventListener('focus', () => {
+    if (isLocked(type, lockId)) {
+      el.blur();
+      const user = getLockUser(type, lockId);
+      alert(`🔒 ${user} 正在编辑此项`);
+      return;
+    }
+    acquireLock(type, lockId);
+  });
+
+  el.addEventListener('blur', () => {
+    releaseLock(type, lockId);
+  });
+
+  // 锁状态更新时检查
+  const checkLock = () => {
+    if (isLocked(type, lockId) && document.activeElement === el) {
+      const user = getLockUser(type, lockId);
+      if (user && user !== myName) {
+        el.blur();
+        alert(`🔒 ${user} 正在编辑此项`);
+      }
+    }
+  };
+
+  window.addEventListener('locks-changed', checkLock);
+
+  // 清理事件（每次重新渲染时）
+  el._lockCleanup = () => window.removeEventListener('locks-changed', checkLock);
+}
+
 function bindScriptEvents() {
   // 幕标题
   container.querySelectorAll('.act-title').forEach(inp => {
@@ -165,6 +201,7 @@ function bindScriptEvents() {
 
   // 角色名
   container.querySelectorAll('.dialogue-char').forEach(inp => {
+    addLockToInput(inp, 'script-char');
     inp.addEventListener('change', () => {
       updateDialogueField(inp, 'character');
     });
@@ -172,6 +209,7 @@ function bindScriptEvents() {
 
   // 对白文本
   container.querySelectorAll('.dialogue-text').forEach(ta => {
+    addLockToInput(ta, 'script-dialogue');
     ta.addEventListener('input', () => {
       autoResize(ta);
     });

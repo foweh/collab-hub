@@ -71,6 +71,33 @@ function addChat(userName, text) {
   return msg;
 }
 
+// ─── 操作审计日志 ────────────────────────────────────────
+const operationLog = [];
+const MAX_LOG = 500;
+let logId = 0;
+
+function addLog(userId, userName, action, module, target) {
+  const entry = {
+    id: ++logId,
+    userId: userId || 'system',
+    userName: userName || '系统',
+    action,
+    module: module || '',
+    target: target || '',
+    timestamp: Date.now(),
+  };
+  operationLog.push(entry);
+  if (operationLog.length > MAX_LOG) operationLog.splice(0, 100);
+  // 广播给所有浏览器
+  io.emit('operation-log', entry);
+  return entry;
+}
+
+// 广播历史日志给新连接的客户端
+function getRecentLogs(count = 50) {
+  return operationLog.slice(-count);
+}
+
 // ─── 消息去重 ────────────────────────────────────────────
 const seenMessages = new Map();
 function isDuplicate(msgId) {
@@ -124,14 +151,48 @@ if (!JOIN_TARGET) {
   console.log(`[测试] --join 模式：将自动连接 ${JOIN_TARGET}`);
 }
 
+// ─── 5分钟重连守护 ───────────────────────────────────────
+const RECONNECT_TIMEOUT = 5 * 60 * 1000;
+
+function handlePeerDisconnect(serverId) {
+  const p = peers.get(serverId);
+  if (!p) return;
+  console.log(`[桥接] 🔌 ${p.name} 断开，${RECONNECT_TIMEOUT/60000}分钟内重连有效...`);
+  p.connected = false;
+  p.socket = null;
+  broadcastPeers();
+  p.reconnectTimer = setTimeout(() => {
+    console.log(`[桥接] ⏰ ${p.name} 重连超时，已移除`);
+    peers.delete(serverId);
+    broadcastPeers();
+  }, RECONNECT_TIMEOUT);
+}
+
 // ─── 桥接：处理入站桥接连接 ────────────────────────────
 function setupBridge(bridgeSocket, remoteIp, isIncoming) {
   let done = false;
   bridgeSocket.on('handshake', (data) => {
     if (done || data.serverId === SERVER_ID) return;
     done = true;
-    if (peers.has(data.serverId)) { bridgeSocket.disconnect(); return; }
-    const p = { socket: bridgeSocket, name: data.name, ip: remoteIp, port: data.port, connected: true, note: '' };
+
+    // 已有此 peer：重连 or 重复连接
+    if (peers.has(data.serverId)) {
+      const ex = peers.get(data.serverId);
+      if (ex.connected) { bridgeSocket.disconnect(); return; }
+      // 🔄 重连！更新 socket，取消删除定时器
+      console.log(`[桥接] 🔄 ${data.name} 重新连接`);
+      clearTimeout(ex.reconnectTimer);
+      ex.socket = bridgeSocket; ex.connected = true; ex.name = data.name; ex.reconnectTimer = null;
+      broadcastPeers();
+      bridgeSocket.emit('handshake-ack', { serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT });
+      sendToPeer(data.serverId, { type: 'projects-sync', projects: projects.map(x => ({...x})) });
+      bridgeSocket.on('bridge-msg', (msg) => handleBridgeMessage(data.serverId, msg));
+      bridgeSocket.on('disconnect', () => handlePeerDisconnect(data.serverId));
+      return;
+    }
+
+    // 全新连接
+    const p = { socket: bridgeSocket, name: data.name, ip: remoteIp, port: data.port, connected: true, note: '', reconnectTimer: null };
     peers.set(data.serverId, p);
     console.log(`[桥接] ✅ ${isIncoming ? '接受' : '连接'} ${data.name}`);
     foundPeer();
@@ -139,7 +200,7 @@ function setupBridge(bridgeSocket, remoteIp, isIncoming) {
     sendToPeer(data.serverId, { type: 'projects-sync', projects: projects.map(x => ({...x})) });
     broadcastPeers();
     bridgeSocket.on('bridge-msg', (msg) => handleBridgeMessage(data.serverId, msg));
-    bridgeSocket.on('disconnect', () => { peers.delete(data.serverId); broadcastPeers(); });
+    bridgeSocket.on('disconnect', () => handlePeerDisconnect(data.serverId));
   });
 }
 
@@ -161,9 +222,13 @@ io.on('connection', (socket) => {
     serverId: SERVER_ID, serverName: SERVER_NAME,
     projects: projects.map(p => ({...p})), peers: peerList,
     scanState, chatHistory: chatHistory.slice(-50),
+    operationLog: getRecentLogs(50),
   });
 
-  socket.on('join', (name) => { SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; });
+  socket.on('join', (name) => {
+    SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME;
+    addLog(socket.id, SERVER_NAME, 'joined', 'system', '');
+  });
   socket.on('set-server-name', (name) => {
     SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; broadcastDiscover();
     for (const [sid, p] of peers) p.socket.emit('bridge-msg', { type: 'peer-rename', serverId: SERVER_ID, name: SERVER_NAME });
@@ -190,6 +255,7 @@ io.on('connection', (socket) => {
   socket.on('project-create', (data) => {
     const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME };
     projects.push(p); socket.emit('project-created', p);
+    addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
   });
   socket.on('project-update', (data) => {
@@ -198,10 +264,13 @@ io.on('connection', (socket) => {
     if (data.data !== undefined) p.data = data.data;
     p.updatedAt = Date.now();
     socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
+    addLog(socket.id, socket.userName || SERVER_NAME, 'updated', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
   });
   socket.on('project-delete', (id) => {
-    projects = projects.filter(p => p.id !== id); socket.emit('project-deleted', id);
+    const p = projects.find(x => x.id === id);
+    projects = projects.filter(x => x.id !== id); socket.emit('project-deleted', id);
+    if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
   });
   socket.on('project-transfer', ({ ids, targetServerId }) => {
@@ -307,7 +376,14 @@ function sendToPeer(serverId, msg) {
 
 function broadcastPeers() {
   const list = [];
-  for (const [sid, p] of peers) if (p.connected) list.push({ serverId: sid, name: p.name, ip: p.ip, port: p.port, connected: true, note: p.note || '' });
+  for (const [sid, p] of peers) {
+    list.push({
+      serverId: sid, name: p.name, ip: p.ip, port: p.port,
+      connected: p.connected,
+      note: p.note || '',
+      reconnecting: !p.connected && p.reconnectTimer !== null,
+    });
+  }
   broadcastToBrowsers({ type: 'peers-update', peers: list });
 }
 
@@ -321,27 +397,63 @@ function getDefaultData(type) {
 }
 
 // ─── 主动连接对方（UDP 发现后调用） ────────────────────
+let connectPeerId = 0; // 用于 --join 模式生成临时 serverId
+
 function connectToPeer(serverId, name, ip, port) {
-  if (peers.has(serverId)) return;
+  // serverId 可能为 null（--join 模式），用临时 id 占位
+  const tempId = serverId || `tmp_${++connectPeerId}`;
+  // 已有连接（包括重连等待中），不再新建
+  if (peers.has(tempId) || (serverId && peers.has(serverId))) return;
+
   console.log(`[桥接] 连接 ${name} @ ${ip}:${port}...`);
   const url = `http://${ip}:${port}`;
-  const sock = SocketIOClient(url, { query: { bridge: 'true' }, transports: ['websocket'], reconnection: false });
+  const sock = SocketIOClient(url, {
+    query: { bridge: 'true' },
+    transports: ['websocket'],
+    reconnection: true,           // 启用自动重连
+    reconnectionDelay: 2000,      // 2秒后开始重试
+    reconnectionAttempts: Infinity, // 一直重试
+  });
+
+  // 真正的 serverId 在 handshake-ack 中才能知道
+  let realServerId = serverId;
+
   sock.on('connect', () => {
     console.log(`[桥接] ✅ Socket.IO 连到 ${name}`);
     sock.emit('handshake', { serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT });
   });
+
   sock.on('handshake-ack', (data) => {
-    if (peers.has(data.serverId)) { sock.disconnect(); return; }
-    const p = { socket: sock, name: data.name, ip, port, connected: true, note: '' };
-    peers.set(data.serverId, p);
+    realServerId = data.serverId;
+
+    // 重连：已有 peer 记录在 grace period 中
+    if (peers.has(realServerId)) {
+      const ex = peers.get(realServerId);
+      if (ex.connected) { sock.disconnect(); return; }
+      // 🔄 重连成功
+      console.log(`[桥接] 🔄 ${data.name} 重连成功`);
+      clearTimeout(ex.reconnectTimer);
+      ex.socket = sock; ex.connected = true; ex.reconnectTimer = null;
+      broadcastPeers();
+      sendToPeer(realServerId, { type: 'projects-sync', projects: projects.map(x => ({...x})) });
+      sock.on('bridge-msg', (msg) => handleBridgeMessage(realServerId, msg));
+      sock.on('disconnect', () => handlePeerDisconnect(realServerId));
+      return;
+    }
+
+    // 全新连接
+    const p = { socket: sock, name: data.name, ip, port, connected: true, note: '', reconnectTimer: null };
+    peers.set(realServerId, p);
+    if (tempId !== realServerId) peers.delete(tempId); // 清理临时 id
     console.log(`[桥接] ✅ 握手完成，已加入 ${data.name}`);
     foundPeer();
-    sendToPeer(data.serverId, { type: 'projects-sync', projects: projects.map(x => ({...x})) });
+    sendToPeer(realServerId, { type: 'projects-sync', projects: projects.map(x => ({...x})) });
     broadcastPeers();
-    sock.on('bridge-msg', (msg) => handleBridgeMessage(data.serverId, msg));
-    sock.on('disconnect', () => { peers.delete(data.serverId); broadcastPeers(); });
+    sock.on('bridge-msg', (msg) => handleBridgeMessage(realServerId, msg));
+    sock.on('disconnect', () => handlePeerDisconnect(realServerId));
   });
-  sock.on('connect_error', () => {}); // 静默忽略重连错误
+
+  sock.on('connect_error', () => {}); // 静默
   setTimeout(() => { if (!sock.connected) sock.close(); }, 10000);
 }
 

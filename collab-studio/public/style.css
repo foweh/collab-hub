@@ -642,6 +642,29 @@ body {
   color: var(--green);
 }
 
+/* ─── 活动日志 ─── */
+#activity-log {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 13px; line-height: 1.6;
+}
+.log-entry {
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.log-entry:hover { background: var(--surface2); }
+.log-entry .log-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  min-width: 50px;
+}
+.log-entry .log-user {
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 /* ─── 滚动条 ─── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

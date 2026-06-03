@@ -1,5 +1,26 @@
+// ─── 全局 CollabStudio API ──────────────────────────────
+window.CollabStudio = {
+  version: '2.0.0',
+  socket: null,
+  modules: {},
+  get userId() { return myUserId; },
+  get userName() { return myName; },
+  get peers() { return peers; },
+  get projects() { return projects; },
+  get serverId() { return serverId; },
+};
+
 // ─── 主应用（多机版） ────────────────────────────────────
 const socket = io();
+CollabStudio.socket = socket;
+
+// 持久身份 ID（localStorage，跨会话不变）
+let myUserId = localStorage.getItem('collab-user-id');
+if (!myUserId) {
+  myUserId = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  localStorage.setItem('collab-user-id', myUserId);
+}
+
 let myName = '';
 let serverId = '';
 let serverName = '';
@@ -95,6 +116,27 @@ socket.on('focus-release-all', ({ user }) => {
     if (u === user) locks.delete(key);
   }
   window.dispatchEvent(new CustomEvent('locks-changed'));
+});
+
+// ─── 操作审计日志 ───────────────────────────────────────
+let operationLog = [];
+
+socket.on('operation-log', (entry) => {
+  operationLog.push(entry);
+  window.dispatchEvent(new CustomEvent('log-entry', { detail: entry }));
+});
+
+socket.on('init', (data) => {
+  // ... existing init handler
+  // We'll extend it below
+});
+
+// 由于上面已经有 socket.on('init') 了，我在这里用另一个方式
+// 实际上 init 已经在前面处理了，我们只补充 operationLog
+// 在第一个 socket.on('init') 里添加
+// 但为了不破坏已有代码，用第二个 init 监听来补充
+socket.on('init', (data) => {
+  if (data.operationLog) operationLog = data.operationLog;
 });
 
 function getScanRemaining() {
@@ -317,17 +359,25 @@ function updatePeersUI() {
   if (peers.length > 0) {
     let html = '';
     peers.forEach(p => {
+      if (!p.connected && !p.reconnecting) return; // 已彻底离线的不显示
+      const statusIcon = p.reconnecting ? '🔄' : (p.connected ? '🟢' : '🔴');
+      const statusText = p.reconnecting ? '重连中...' : '';
       const noteHtml = p.note ? `<br><small>📝 ${esc(p.note)}</small>` : '';
       html += `<div style="margin-bottom:8px;padding:6px 0;border-bottom:1px solid var(--border)">
-        <div class="peer-name">${esc(p.name)}</div>
+        <div class="peer-name">${statusIcon} ${esc(p.name)} ${statusText}</div>
         <div class="d-meta">IP: ${p.ip} · ID: ${p.serverId}</div>
         ${noteHtml}
       </div>`;
     });
-    peerStatusArea.innerHTML = `<div class="status-connected">🟢 ${peers.length} 台设备在线</div>${html}`;
+    const onlineCount = peers.filter(p => p.connected).length;
+    const reconnectingCount = peers.filter(p => p.reconnecting).length;
+    const statusLine = onlineCount > 0
+      ? `🟢 ${onlineCount} 台设备在线${reconnectingCount > 0 ? ` · 🔄 ${reconnectingCount} 重连中` : ''}`
+      : `🔄 ${reconnectingCount} 台设备重连中...`;
+    peerStatusArea.innerHTML = `<div class="status-connected">${statusLine}</div>${html}`;
     peerBadge.style.display = 'inline';
-    peerBadge.className = 'badge online';
-    peerBadge.textContent = `🤝 ${peers.length} 在线`;
+    peerBadge.className = onlineCount > 0 ? 'badge online' : 'badge';
+    peerBadge.textContent = onlineCount > 0 ? `🤝 ${onlineCount} 在线` : '🔄 重连中';
     transferSection.style.display = 'block';
     noteSection.style.display = 'block';
     updateNoteSection();
@@ -448,6 +498,13 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 86400000)} 天前`;
 }
 
+// ─── 模块注册 ────────────────────────────────────────────
+// 各编辑器模块在加载时将自己注册到 CollabStudio.modules
+// 格式: { name, open, save, getData, setData }
+window.registerCollabModule = function(name, api) {
+  CollabStudio.modules[name] = api;
+};
+
 // ─── 群聊 ────────────────────────────────────────────────
 function addChatLine(msg) {
   const d = document.createElement('div');
@@ -473,6 +530,51 @@ function sendChat() {
 chatSendBtn.addEventListener('click', sendChat);
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChat();
+});
+
+// ─── 活动日志 ────────────────────────────────────────────
+function renderActivityLog() {
+  const container = document.getElementById('activity-log');
+  if (!container) return;
+  container.innerHTML = '';
+  const logs = [...operationLog].reverse();
+  if (logs.length === 0) {
+    container.innerHTML = '<div class="editor-placeholder">暂无操作记录</div>';
+    return;
+  }
+  logs.forEach(entry => {
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    const time = new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const icons = { joined: '🟢', left: '🔴', created: '📄', updated: '✏️', deleted: '🗑️', sent: '📤', received: '📥' };
+    const icon = icons[entry.action] || '•';
+    div.innerHTML = `<span class="log-time">${time}</span> <span class="log-user">${esc(entry.userName)}</span> ${icon} ${esc(formatLog(entry))}`;
+    container.appendChild(div);
+  });
+}
+function formatLog(entry) {
+  const mi = { script: '📜', mindmap: '🧠', story: '📖', system: '⚙️' };
+  const m = mi[entry.module] || '';
+  switch (entry.action) {
+    case 'joined': return '加入了协作';
+    case 'left':   return '离开了协作';
+    case 'created': return `${m} 创建了 ${entry.target}`;
+    case 'updated': return `${m} 修改了 ${entry.target}`;
+    case 'deleted': return `${m} 删除了 ${entry.target}`;
+    case 'sent':    return `📤 发送了项目给 ${entry.target}`;
+    case 'received':return `📥 收到了来自 ${entry.target} 的项目`;
+    default: return `${m} ${entry.action} ${entry.target}`;
+  }
+}
+window.addEventListener('log-entry', () => {
+  const p = document.getElementById('panel-activity');
+  if (p && p.classList.contains('active')) renderActivityLog();
+});
+document.querySelector('.nav-btn[data-module="activity"]').addEventListener('click', () => {
+  setTimeout(renderActivityLog, 100);
+});
+document.getElementById('log-clear-btn').addEventListener('click', () => {
+  operationLog = []; renderActivityLog();
 });
 
 // ─── 返回项目列表 ────────────────────────────────────────

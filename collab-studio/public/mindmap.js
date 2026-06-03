@@ -756,6 +756,18 @@ window.loadMindMapData = function(data) {
   render();
 };
 
+// ─── CollabStudio API 导出 ──────────────────────────────
+window.registerCollabModule && window.registerCollabModule('mindmap', {
+  name: 'mindmap',
+  open: (project) => window.openMindMapEditor(project),
+  save: () => saveData(),
+  getData: () => currentProject ? { nodes, edges } : null,
+  setData: (data) => { nodes = data.nodes || []; edges = data.edges || []; render(); },
+  fitToScreen: () => fitToScreen(),
+  zoomIn: () => zoomIn(),
+  zoomOut: () => zoomOut(),
+});
+
 // 初始渲染
 setTimeout(mmResize, 100);
 

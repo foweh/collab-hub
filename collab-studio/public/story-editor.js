@@ -148,4 +148,13 @@ socket.on('story-updated', (data) => {
   }
 });
 
+// ─── CollabStudio API 导出 ──────────────────────────────
+window.registerCollabModule && window.registerCollabModule('story', {
+  name: 'story',
+  open: (project) => window.openStoryEditor(project),
+  save: () => saveData(),
+  getData: () => currentProject ? currentProject.data : null,
+  setData: (data) => { if (currentProject) { currentProject.data = data; renderContent(); } },
+});
+
 })();

@@ -290,4 +290,13 @@ addActBtn.addEventListener('click', () => {
   saveData();
 });
 
+// ─── CollabStudio API 导出 ──────────────────────────────
+window.registerCollabModule && window.registerCollabModule('script', {
+  name: 'script',
+  open: (project) => window.openScriptEditor(project),
+  save: () => saveData(),
+  getData: () => currentProject ? currentProject.data : null,
+  setData: (data) => { if (currentProject) { currentProject.data = data; renderScript(); } },
+});
+
 })();

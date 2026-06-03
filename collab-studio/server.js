@@ -1,4 +1,4 @@
-// ─── 局域网协作创作工作室 服务端 ──────────────────────────
+// ─── 多机协作创作工作室 服务端 ──────────────────────────
 const express = require('express');
 const http = require('http');
 const { Server: SocketIOServer } = require('socket.io');
@@ -10,24 +10,42 @@ const WebSocket = require('ws');
 
 // ─── 配置 ────────────────────────────────────────────────
 const HTTP_PORT = parseInt(process.env.PORT) || 3000;
-const UDP_PORT = 41234;       // UDP 发现端口
-const BRIDGE_PATH = '/bridge'; // server↔server WebSocket 路径
+const UDP_PORT = 41234;
+const BRIDGE_PATH = '/bridge';
 
 const SERVER_ID = uuid().slice(0, 8);
 let SERVER_NAME = os.hostname();
 
-// ─── 存储 ────────────────────────────────────────────────
-// 本地项目（不在 localStorage 里，存在内存 + 周期性写入文件简化版本）
-let projects = [];      // [{ id, type, name, data, createdAt, updatedAt, owner }]
-let peerInfo = null;    // { serverId, name, ip, port, connected }
-let peerBridge = null;  // WebSocket 连接到对方的连接
+// ─── 多 peer 存储 ────────────────────────────────────────
+// peers: Map<serverId, { ws, name, ip, port, connected, note, incoming }>
+const peers = new Map();
+let projects = [];
+
+// ─── 消息去重（防回环） ──────────────────────────────────
+const seenMessages = new Map(); // msgId → timestamp
+const DEDUP_TTL = 30000;       // 30秒后清理
+
+function isDuplicate(msgId) {
+  if (!msgId) return false;
+  if (seenMessages.has(msgId)) return true;
+  seenMessages.set(msgId, Date.now());
+  return false;
+}
+
+// 每 60 秒清理过期 msgId
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, ts] of seenMessages) {
+    if (now - ts > DEDUP_TTL) seenMessages.delete(id);
+  }
+}, 60000);
 
 // ─── Express + Socket.IO ─────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: '*' },
-  maxHttpBufferSize: 10 * 1024 * 1024, // 10MB for project transfer
+  maxHttpBufferSize: 10 * 1024 * 1024,
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -35,34 +53,34 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ─── UDP 局域网发现 ──────────────────────────────────────
 const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
 
-udp.on('error', (err) => {
-  console.log(`[UDP] 错误: ${err.message}`);
-});
+udp.on('error', (err) => console.log(`[UDP] 错误: ${err.message}`));
 
 udp.on('message', (msg, rinfo) => {
   try {
     const pkt = JSON.parse(msg.toString());
     if (pkt.type === 'discover') {
-      // 对方在找我们，回复 hello
-      const reply = JSON.stringify({
-        type: 'hello',
-        serverId: SERVER_ID,
-        name: SERVER_NAME,
-        port: HTTP_PORT,
-      });
-      udp.send(reply, rinfo.port, rinfo.address, (err) => {
-        if (err) console.log(`[UDP] 回复失败: ${err.message}`);
-      });
+      // 回复 hello
+      const reply = JSON.stringify({ type: 'hello', serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT });
+      udp.send(reply, rinfo.port, rinfo.address);
     } else if (pkt.type === 'hello') {
-      // 收到对方回复
-      if (pkt.serverId !== SERVER_ID) {
-        console.log(`\n[发现] 检测到设备: ${pkt.name} (${pkt.serverId}) @ ${rinfo.address}:${pkt.port}`);
+      if (pkt.serverId === SERVER_ID) return; // 忽略自己
+      if (peers.has(pkt.serverId)) {
+        // 已连接，更新名字
+        const p = peers.get(pkt.serverId);
+        p.name = pkt.name;
+        broadcastPeers();
+        return;
+      }
+      console.log(`\n[发现] ${pkt.name} (${pkt.serverId}) @ ${rinfo.address}:${pkt.port}`);
+      // 仲裁：serverId 小的主动连接
+      if (SERVER_ID < pkt.serverId) {
+        console.log(`  → 我(ID较小)主动连接 ${pkt.name}`);
         connectToPeer(pkt.serverId, pkt.name, rinfo.address, pkt.port);
+      } else {
+        console.log(`  → 等待 ${pkt.name} 连我(ID较大)`);
       }
     }
-  } catch (e) {
-    // ignore malformed
-  }
+  } catch (e) { /* ignore */ }
 });
 
 udp.bind(UDP_PORT, () => {
@@ -70,20 +88,14 @@ udp.bind(UDP_PORT, () => {
   console.log(`[UDP] 发现服务已启动 (端口 ${UDP_PORT})`);
 });
 
-// 定时广播发现包
 function broadcastDiscover() {
   const pkt = JSON.stringify({ type: 'discover', serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT });
-  udp.send(pkt, UDP_PORT, '255.255.255.255', (err) => {
-    if (err) /* ignore */;
-  });
+  udp.send(pkt, UDP_PORT, '255.255.255.255');
 }
-// 每 5 秒广播一次
 setInterval(broadcastDiscover, 5000);
-// 启动后 1 秒发第一次
 setTimeout(broadcastDiscover, 1000);
 
-// ─── Server↔Server WebSocket 桥接 ────────────────────────
-// 在 Express server 上创建 raw WebSocket server 用于桥接
+// ─── WebSocket 桥接 ──────────────────────────────────────
 const bridgeWss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (request, socket, head) => {
@@ -97,65 +109,78 @@ server.on('upgrade', (request, socket, head) => {
   }
 });
 
-// 对方连接过来
+// 对方主动连过来
 bridgeWss.on('connection', (ws, req) => {
   const remoteIp = req.socket.remoteAddress.replace(/^::ffff:/, '');
-  console.log(`[桥接] 对方从 ${remoteIp} 连接过来`);
+  console.log(`[桥接] 收到来自 ${remoteIp} 的连接`);
+  let handshakeDone = false;
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      if (msg.type === 'handshake') {
+        if (handshakeDone) return;
+        handshakeDone = true;
+
+        const sid = msg.serverId;
+        if (sid === SERVER_ID) { ws.close(); return; }
+
+        // 如果已有此 peer 连接，关闭老的
+        const existing = peers.get(sid);
+        if (existing && existing.connected) {
+          console.log(`  → 已有 ${msg.name} 的连接，跳过`);
+          ws.close();
+          return;
+        }
+
+        const p = {
+          ws, name: msg.name, ip: remoteIp,
+          port: msg.port, connected: true,
+          note: '', incoming: true,
+        };
+        peers.set(sid, p);
+        console.log(`[桥接] ✅ 已接受 ${msg.name} 连接`);
+
+        // 同步项目给对方
+        sendToPeer(ws, { type: 'projects-sync', projects: getLocalProjects() });
+        broadcastPeers();
+
+        ws.on('close', () => {
+          console.log(`[桥接] ${p.name} 断开`);
+          peers.delete(sid);
+          broadcastPeers();
+        });
+        return;
+      }
+
+      // 普通消息（handshake 之后）
       handleBridgeMessage(ws, msg);
+
     } catch (e) { /* ignore */ }
   });
 
   ws.on('close', () => {
-    console.log('[桥接] 对方断开连接');
-    peerBridge = null;
-    if (peerInfo) {
-      peerInfo.connected = false;
-      broadcastToBrowsers({ type: 'peer-status', peer: peerInfo });
-    }
+    if (handshakeDone) return; // 已在上面处理
   });
-
-  // 发送 handshake
-  ws.send(JSON.stringify({
-    type: 'handshake',
-    serverId: SERVER_ID,
-    name: SERVER_NAME,
-    port: HTTP_PORT,
-  }));
 });
 
 // 主动连接对方
 function connectToPeer(serverId, name, ip, port) {
-  if (peerBridge && peerInfo && peerInfo.serverId === serverId && peerInfo.connected) {
-    return; // 已连接
-  }
+  if (peers.has(serverId) && peers.get(serverId).connected) return;
 
   const url = `ws://${ip}:${port}${BRIDGE_PATH}`;
-  console.log(`[桥接] 正在连接 ${name} (${url})...`);
-
-  // 用轻量级 ws 连接
+  console.log(`[桥接] 连接 ${name} (${url})...`);
   const ws = new WebSocket(url);
   let connected = false;
 
   ws.on('open', () => {
     connected = true;
-    peerBridge = ws;
-    peerInfo = { serverId, name, ip, port, connected: true };
+    const p = { ws, name, ip, port, connected: true, note: '', incoming: false };
+    peers.set(serverId, p);
     console.log(`[桥接] ✅ 已连接到 ${name}`);
 
-    // 发送 handshake
-    ws.send(JSON.stringify({
-      type: 'handshake',
-      serverId: SERVER_ID,
-      name: SERVER_NAME,
-      port: HTTP_PORT,
-    }));
-
-    // 通知浏览器
-    broadcastToBrowsers({ type: 'peer-status', peer: peerInfo });
+    ws.send(JSON.stringify({ type: 'handshake', serverId: SERVER_ID, name: SERVER_NAME, port: HTTP_PORT }));
+    broadcastPeers();
   });
 
   ws.on('message', (data) => {
@@ -166,161 +191,162 @@ function connectToPeer(serverId, name, ip, port) {
   });
 
   ws.on('close', () => {
-    if (connected) {
-      console.log(`[桥接] ${name} 断开连接`);
-    }
-    peerBridge = null;
-    if (peerInfo) {
-      peerInfo.connected = false;
-      broadcastToBrowsers({ type: 'peer-status', peer: peerInfo });
-    }
+    if (connected) console.log(`[桥接] ${name} 断开`);
+    peers.delete(serverId);
+    broadcastPeers();
   });
 
-  ws.on('error', (err) => {
-    // 连接失败是正常的（对方可能未启动）
-    if (!connected) {
-      // 静默忽略首次连接失败
-    }
-  });
+  ws.on('error', () => { /* 连接失败正常 */ });
 
-  // 10秒超时
-  setTimeout(() => {
-    if (!connected) {
-      ws.close();
-    }
-  }, 10000);
+  setTimeout(() => { if (!connected) ws.close(); }, 10000);
 }
 
 // ─── 桥接消息处理 ────────────────────────────────────────
 function handleBridgeMessage(ws, msg) {
-  switch (msg.type) {
-    case 'handshake':
-      if (!peerInfo) {
-        peerInfo = {
-          serverId: msg.serverId,
-          name: msg.name,
-          port: msg.port,
-          connected: true,
-        };
-        peerBridge = ws;
-        console.log(`[桥接] ✅ 握手成功: ${msg.name}`);
-        // 同步项目给对方
-        ws.send(JSON.stringify({
-          type: 'projects-sync',
-          projects: projects,
-        }));
-        broadcastToBrowsers({ type: 'peer-status', peer: peerInfo });
-      }
-      break;
+  // 找出这个 ws 对应的 peer serverId
+  let fromId = null;
+  for (const [sid, p] of peers) {
+    if (p.ws === ws) { fromId = sid; break; }
+  }
 
+  switch (msg.type) {
     case 'projects-sync':
-      // 收到对方发来的项目列表（全量同步）
       console.log(`[同步] 收到 ${msg.projects.length} 个项目`);
-      // 合并：对方的项目如果本地没有则添加
-      msg.projects.forEach(remoteP => {
-        const existing = projects.find(p => p.id === remoteP.id);
-        if (!existing) {
-          projects.push(remoteP);
-        } else if (remoteP.updatedAt > existing.updatedAt) {
-          Object.assign(existing, remoteP);
-        }
-      });
-      broadcastToBrowsers({ type: 'projects-update', projects: getLocalProjects() });
+      mergeProjects(msg.projects);
+      broadcastToBrowsers({ type: 'projects-update' });
+      // 转发给其他 peer
+      broadcastToPeers(msg, fromId);
       break;
 
     case 'project-transfer':
-      // 对方发送项目给我们
       console.log(`[传输] 收到 ${msg.projects.length} 个项目`);
       const newOnes = [];
       msg.projects.forEach(p => {
-        const existing = projects.find(x => x.id === p.id);
-        if (!existing) {
-          projects.push(p);
+        if (!projects.find(x => x.id === p.id)) {
+          projects.push({...p});
           newOnes.push(p);
         }
       });
       broadcastToBrowsers({ type: 'projects-received', projects: newOnes, from: msg.fromName });
-      broadcastToBrowsers({ type: 'projects-update', projects: getLocalProjects() });
+      broadcastToBrowsers({ type: 'projects-update' });
+      broadcastToPeers(msg, fromId);
       break;
 
     case 'realtime':
-      // 对方转发过来的实时编辑事件 → 广播给所有浏览器客户端
-      io.emit(msg.event, msg.data);
+      // 去重：检查 msgId 是否见过
+      if (msg._msgId && isDuplicate(msg._msgId)) break;
+      // 实时编辑事件 → 广播给本机浏览器 + 转发给其他 peer
+      broadcastToBrowsers({ type: 'realtime', origin: msg.origin, event: msg.event, data: msg.data });
+      if (msg.origin !== SERVER_ID) {
+        io.emit(msg.event, msg.data);
+      }
+      if (msg._msgId) {
+        broadcastToPeers(msg, fromId);
+      }
       break;
 
     case 'forward-to-peer':
-      // 浏览器发来要转发给对方的
-      if (peerBridge && peerBridge.readyState === WebSocket.OPEN) {
-        peerBridge.send(JSON.stringify(msg.payload));
-      }
+      broadcastToPeers(msg.payload, fromId);
       break;
   }
 }
 
-// 广播消息给所有浏览器客户端
+// ─── 项目合并 ────────────────────────────────────────────
+function mergeProjects(remoteList) {
+  remoteList.forEach(rp => {
+    const local = projects.find(p => p.id === rp.id);
+    if (!local) {
+      projects.push({...rp});
+    } else if (rp.updatedAt > local.updatedAt) {
+      Object.assign(local, rp);
+    }
+  });
+}
+
+// ─── 广播工具 ────────────────────────────────────────────
 function broadcastToBrowsers(data) {
   io.emit('bridge-message', data);
 }
 
-// 获取本地项目（去掉内部字段）
+function broadcastToPeers(msg, excludeId) {
+  for (const [sid, p] of peers) {
+    if (sid !== excludeId && p.connected) {
+      sendToPeer(p.ws, msg);
+    }
+  }
+}
+
+function sendToPeer(ws, msg) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+function broadcastPeers() {
+  const list = [];
+  for (const [sid, p] of peers) {
+    if (p.connected) {
+      list.push({ serverId: sid, name: p.name, ip: p.ip, port: p.port, connected: true, note: p.note || '' });
+    }
+  }
+  broadcastToBrowsers({ type: 'peers-update', peers: list });
+}
+
 function getLocalProjects() {
   return projects.map(p => ({ ...p }));
 }
 
-// ─── Socket.IO (浏览器客户端) ────────────────────────────
+// ─── Socket.IO (浏览器) ──────────────────────────────────
 io.on('connection', (socket) => {
-  console.log(`[浏览器] 客户端连接 ${socket.id}`);
+  console.log(`[浏览器] ${socket.id}`);
 
-  // 发送当前状态
+  // 发送初始状态
+  const peerList = [];
+  for (const [sid, p] of peers) {
+    if (p.connected) peerList.push({ serverId: sid, name: p.name, ip: p.ip, port: p.port, connected: true, note: p.note || '' });
+  }
   socket.emit('init', {
-    serverId: SERVER_ID,
-    serverName: SERVER_NAME,
-    projects: getLocalProjects(),
-    peer: peerInfo ? { ...peerInfo } : null,
+    serverId: SERVER_ID, serverName: SERVER_NAME,
+    projects: getLocalProjects(), peers: peerList,
   });
 
-  // 用户加入/命名
   socket.on('join', (name) => {
     if (name) SERVER_NAME = name;
     socket.userName = name || SERVER_NAME;
-    console.log(`[用户] ${socket.userName} 加入`);
+    console.log(`[用户] ${socket.userName}`);
   });
 
   socket.on('set-server-name', (name) => {
     SERVER_NAME = name || SERVER_NAME;
     socket.userName = SERVER_NAME;
-    broadcastDiscover(); // 让对方知道新名字
-  });
-
-  socket.on('lan-toggle', (on) => {
-    // UDP 广播始终在运行；这里只是客户端状态
-  });
-
-  socket.on('refresh-lan', () => {
     broadcastDiscover();
-  });
-
-  socket.on('peer-note', (data) => {
-    if (peerInfo) {
-      peerInfo.note = data.note || '';
-      broadcastToBrowsers({ type: 'peer-status', peer: { ...peerInfo } });
+    // 更新所有 peer 的名字
+    for (const [sid, p] of peers) {
+      sendToPeer(p.ws, { type: 'peer-rename', serverId: SERVER_ID, name: SERVER_NAME });
     }
   });
 
-  // 项目操作
+  socket.on('refresh-lan', () => broadcastDiscover());
+
+  socket.on('peer-note', ({ serverId, note }) => {
+    if (peers.has(serverId)) {
+      peers.get(serverId).note = note || '';
+      broadcastPeers();
+    }
+  });
+
+  // ── 项目 CRUD ──
   socket.on('project-create', (data) => {
     const p = {
       id: uuid().slice(0, 12),
-      type: data.type,
-      name: data.name || '未命名',
+      type: data.type, name: data.name || '未命名',
       data: data.data || getDefaultData(data.type),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: Date.now(), updatedAt: Date.now(),
       owner: SERVER_NAME,
     };
     projects.push(p);
     socket.emit('project-created', p);
-    broadcastToAllPeers({ type: 'projects-sync', projects: getLocalProjects() });
+    broadcastToPeers({ type: 'projects-sync', projects: getLocalProjects() }, null);
   });
 
   socket.on('project-update', (data) => {
@@ -330,60 +356,49 @@ io.on('connection', (socket) => {
       if (data.data !== undefined) p.data = data.data;
       p.updatedAt = Date.now();
       socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
-      // 实时转发给对方
-      forwardToPeer({ type: 'projects-sync', projects: getLocalProjects() });
+      broadcastToPeers({ type: 'projects-sync', projects: getLocalProjects() }, null);
     }
   });
 
   socket.on('project-delete', (id) => {
     projects = projects.filter(p => p.id !== id);
     socket.emit('project-deleted', id);
-    forwardToPeer({ type: 'projects-sync', projects: getLocalProjects() });
+    broadcastToPeers({ type: 'projects-sync', projects: getLocalProjects() }, null);
   });
 
-  socket.on('project-transfer', (data) => {
-    // 选择项目发送给对方
-    const toSend = projects.filter(p => data.ids.includes(p.id));
-    if (toSend.length > 0 && peerBridge && peerBridge.readyState === WebSocket.OPEN) {
-      peerBridge.send(JSON.stringify({
+  socket.on('project-transfer', ({ ids, targetServerId }) => {
+    const toSend = projects.filter(p => ids.includes(p.id));
+    if (toSend.length === 0) return;
+    const targetPeer = peers.get(targetServerId);
+    if (targetPeer && targetPeer.connected) {
+      sendToPeer(targetPeer.ws, {
         type: 'project-transfer',
-        projects: toSend.map(p => ({ ...p })),
-        fromName: SERVER_NAME,
-      }));
-      socket.emit('transfer-sent', { count: toSend.length, to: peerInfo.name });
+        projects: toSend.map(p => ({...p})),
+        fromName: SERVER_NAME, fromId: SERVER_ID,
+      });
+      socket.emit('transfer-sent', { count: toSend.length, to: targetPeer.name });
     } else {
-      socket.emit('transfer-failed', { reason: peerInfo ? '对方不在线' : '未发现设备' });
+      socket.emit('transfer-failed', { reason: '对方不在线' });
     }
   });
 
-  // 实时编辑转发（剧本/思维导图/故事）
+  // ── 实时编辑（带 origin 防回环） ──
   socket.on('realtime-event', (data) => {
-    // data: { module, event, payload }
-    // 转发给所有浏览器（包括自己）
-    io.emit(data.event, data.payload);
-    // 转发给对方服务器
-    forwardToPeer({
+    const msg = {
       type: 'realtime',
+      _msgId: uuid(),
+      origin: SERVER_ID,
       event: data.event,
       data: data.payload,
-    });
+    };
+    // 广播给本机所有浏览器
+    socket.broadcast.emit(data.event, data.payload);
+    // 转发给所有 peer
+    broadcastToPeers(msg, null);
   });
-
-
 });
 
-function forwardToPeer(msg) {
-  if (peerBridge && peerBridge.readyState === WebSocket.OPEN) {
-    peerBridge.send(JSON.stringify(msg));
-  }
-}
-
-// 广播给所有连接的对等服务器
-function broadcastToAllPeers(msg) {
-  forwardToPeer(msg);
-}
-
-// 默认数据模板
+// ─── 工具 ────────────────────────────────────────────────
 function getDefaultData(type) {
   switch (type) {
     case 'script': return { acts: [] };
@@ -400,20 +415,19 @@ server.listen(HTTP_PORT, '0.0.0.0', () => {
   for (const name of Object.keys(ifaces)) {
     for (const iface of ifaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) {
-        ip = iface.address;
-        break;
+        ip = iface.address; break;
       }
     }
   }
   console.log('╔══════════════════════════════════════════╗');
-  console.log('║     🎬 协作创作工作室 v1.0               ║');
+  console.log('║    🎬 多机协作创作工作室 v2.0            ║');
   console.log('╠══════════════════════════════════════════╣');
   console.log(`║  服务ID: ${SERVER_ID.padEnd(28)}║`);
   console.log(`║  本机名: ${SERVER_NAME.padEnd(27)}║`);
   console.log(`║  本机:   http://localhost:${HTTP_PORT}${' '.repeat(16 - String(HTTP_PORT).length)}║`);
   console.log(`║  局域网: http://${ip}:${HTTP_PORT}${' '.repeat(Math.max(0, 26 - ip.length - String(HTTP_PORT).length))}║`);
   console.log('║                                        ║');
-  console.log('║  打开页面后点击"开启局域网"按钮        ║');
-  console.log('║  两台电脑在同一网段即可自动发现对方     ║');
+  console.log('║  多台电脑打开页面 → 开启局域网          ║');
+  console.log('║  自动发现并组建协作网络                  ║');
   console.log('╚══════════════════════════════════════════╝');
 });

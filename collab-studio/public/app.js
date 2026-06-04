@@ -286,7 +286,7 @@ document.getElementById('nav-storyboard').addEventListener('click', () => {
 function initUI() {
   if (projects.length === 0) {
     createDefaultProject('script', '📜 未命名剧本');
-    createDefaultProject('mindmap', '🧠 未命名导图');
+    createDefaultProject('mindmap', '未命名导图');
     createDefaultProject('story', '📖 未命名故事');
   }
   renderProjects();

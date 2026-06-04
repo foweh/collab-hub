@@ -763,6 +763,24 @@ body {
 .mm-priority-picker .mm-pri-opt:hover { border-color: var(--accent); }
 .mm-priority-picker .mm-pri-opt.active { border-color: var(--accent); background: rgba(79,195,247,0.15); }
 
+/* ─── 导图历史下拉 ─── */
+.mm-hist-dropdown {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  z-index: 9999;
+}
+.mm-hist-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 14px; font-size: 13px; cursor: pointer;
+  color: var(--text); white-space: nowrap;
+  transition: background 0.1s;
+}
+.mm-hist-item:hover { background: var(--surface2); }
+.mm-hist-item.active { background: rgba(79,195,247,0.12); color: var(--accent); }
+
 /* ─── 思维导图浮动工具栏 ─── */
 .mm-float-bar {
   position: absolute; z-index: 100;

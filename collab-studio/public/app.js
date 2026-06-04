@@ -256,7 +256,21 @@ navBtns.forEach(btn => {
     panels.forEach(p => p.classList.remove('active'));
     const panel = document.getElementById(`panel-${mod}`);
     if (panel) panel.classList.add('active');
-    if (mod === 'mindmap') setTimeout(() => window.mmResize && window.mmResize(), 100);
+    if (mod === 'mindmap') {
+      setTimeout(() => {
+        if (window.mmResize) window.mmResize();
+        // 自动打开上次的导图（仅当导图面板未加载过项目时）
+        const mmTitle = document.getElementById('mindmap-title');
+        const hasLoaded = mmTitle && !mmTitle.textContent.includes('思维导图');
+        if (!hasLoaded) {
+          const lastId = localStorage.getItem('mm-last-id');
+          let target = null;
+          if (lastId) target = projects.find(p => p.id === lastId && p.type === 'mindmap');
+          if (!target) target = (projects||[]).filter(p => p.type === 'mindmap').sort((a, b) => (b.updatedAt||0) - (a.updatedAt||0))[0];
+          if (target) window.openMindMapEditor(target);
+        }
+      }, 100);
+    }
     if (mod === 'devices') setTimeout(() => window.renderDevices && window.renderDevices(), 100);
   });
 });

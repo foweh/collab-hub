@@ -98,6 +98,8 @@ window.addEventListener('resize', () => {
 // ─── 打开导图 ────────────────────────────────────────────
 window.openMindMapEditor = function(project) {
   currentProject = project;
+  // 记住上次打开的导图
+  try { localStorage.setItem('mm-last-id', project.id); } catch(e) {}
   titleEl.textContent = `🧠 ${esc(project.name)}`;
   const data = project.data || { nodes: [], edges: [] };
   nodes = JSON.parse(JSON.stringify(data.nodes || []));
@@ -110,7 +112,8 @@ window.openMindMapEditor = function(project) {
   if (root) { camera.x = canvas.width / 2 - root.x; camera.y = canvas.height / 3 - root.y; camera.zoom = 1; }
   selectedIds.clear();
   setTimeout(mmResize, 50);
-};
+  updateHistoryList();
+}
 
 // ─── 布局引擎 ────────────────────────────────────────────
 function autoLayout() {
@@ -1159,6 +1162,69 @@ searchBtn.className = 'tool-btn'; searchBtn.textContent = '🔍 搜索';
 searchBtn.title = '搜索节点 (Ctrl+F)';
 searchBtn.addEventListener('click', startSearch);
 document.getElementById('mindmap-toolbar').appendChild(searchBtn);
+
+// 历史下拉按钮（动态创建）
+const histBtn = document.createElement('button');
+histBtn.className = 'tool-btn'; histBtn.textContent = '📂 历史';
+histBtn.title = '切换思维导图';
+histBtn.addEventListener('click', toggleHistoryDropdown);
+document.getElementById('mindmap-toolbar').appendChild(histBtn);
+
+let histDropdown = null;
+function toggleHistoryDropdown() {
+  if (histDropdown) { histDropdown.remove(); histDropdown = null; return; }
+  const mmProjects = (window.projects || []).filter(p => p.type === 'mindmap');
+  if (mmProjects.length === 0) return;
+  const dd = document.createElement('div');
+  dd.className = 'mm-hist-dropdown';
+  const rect = histBtn.getBoundingClientRect();
+  dd.style.position = 'fixed';
+  dd.style.left = rect.left + 'px';
+  dd.style.top = (rect.bottom + 4) + 'px';
+  dd.style.minWidth = '180px';
+  // 当前项目排第一
+  mmProjects.sort((a, b) => a.id === (currentProject && currentProject.id) ? -1 : b.id === (currentProject && currentProject.id) ? 1 : 0);
+  mmProjects.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'mm-hist-item' + (p.id === (currentProject && currentProject.id) ? ' active' : '');
+    item.innerHTML = `<span>🧠 ${esc(p.name)}</span><span style="color:var(--text-dim);font-size:11px">${timeAgo(p.updatedAt)}</span>`;
+    item.addEventListener('click', () => {
+      dd.remove(); histDropdown = null;
+      if (p.id !== (currentProject && currentProject.id)) {
+        openProjectFromList(p);
+      }
+    });
+    dd.appendChild(item);
+  });
+  document.body.appendChild(dd);
+  histDropdown = dd;
+  // 点击外部关闭
+  setTimeout(() => document.addEventListener('click', closeHist, { once: true }), 0);
+}
+function closeHist(e) { if (histDropdown && !histDropdown.contains(e.target) && e.target !== histBtn) { histDropdown.remove(); histDropdown = null; } }
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// 辅助：直接从 projects 列表打开导图
+function openProjectFromList(p) {
+  if (window.openMindMapEditor) window.openMindMapEditor(p);
+  // 切换到导图面板
+  const navBtn = document.querySelector('.nav-btn[data-module="mindmap"]');
+  if (navBtn) navBtn.click();
+}
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+  return Math.floor(diff / 86400000) + '天前';
+}
+
+function updateHistoryList() {
+  // 更新历史按钮状态（如有的话）
+}
 
 // 缩放按钮（动态创建）
 const zoomOutBtn = document.createElement('button');

@@ -277,6 +277,7 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'storyboard': return { scenes: [], shots: [] };
     default: return {};
   }
 }
@@ -297,6 +298,10 @@ $('#new-story-btn').addEventListener('click', () => {
   const name = prompt('故事名称:', '新故事');
   if (name) socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') });
 });
+$('#new-storyboard-btn').addEventListener('click', () => {
+  const name = prompt('分镜名称:', '新分镜');
+  if (name) socket.emit('project-create', { type: 'storyboard', name, data: getDefaultData('storyboard') });
+});
 
 function renderProjects() {
   projectList.innerHTML = '';
@@ -305,8 +310,8 @@ function renderProjects() {
     return;
   }
   projects.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖' };
-    const names = { script: '剧本', mindmap: '思维导图', story: '故事' };
+    const icons = { script: '📜', mindmap: '🧠', story: '📖', storyboard: '🎞' };
+    const names = { script: '剧本', mindmap: '思维导图', story: '故事', storyboard: '分镜' };
     const card = document.createElement('div');
     card.className = 'project-card';
     card.innerHTML = `
@@ -339,6 +344,7 @@ function openProject(p) {
     case 'script':  window.openScriptEditor(p); break;
     case 'mindmap': window.openMindMapEditor(p); break;
     case 'story':   window.openStoryEditor(p); break;
+    case 'storyboard': window.openStoryboardEditor(p); break;
   }
 }
 
@@ -578,7 +584,7 @@ document.getElementById('log-clear-btn').addEventListener('click', () => {
 });
 
 // ─── 返回项目列表 ────────────────────────────────────────
-document.querySelectorAll('#script-back, #mindmap-back, #story-back').forEach(btn => {
+document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back').forEach(btn => {
   btn.addEventListener('click', () => {
     navBtns.forEach(b => b.classList.remove('active'));
     panels.forEach(p => p.classList.remove('active'));

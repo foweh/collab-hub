@@ -392,6 +392,7 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'storyboard': return { scenes: [], shots: [] };
     default: return {};
   }
 }

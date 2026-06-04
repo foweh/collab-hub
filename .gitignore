@@ -4,3 +4,13 @@ dist/
 *.log
 fenjing-local/
 github-projects/
+
+# Reasonix 工作流配置
+.reasonix/
+
+# 敏感文件
+sshkey
+sshkey.pub
+
+# 运行时数据
+collab-studio/data/

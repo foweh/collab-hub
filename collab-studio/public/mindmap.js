@@ -182,6 +182,29 @@ function render() {
   nodes.forEach(n => { if (!selectedIds.has(n.id)) drawNode(n, false); });
   // 再渲染选中的节点（在顶层）
   nodes.forEach(n => { if (selectedIds.has(n.id)) drawNode(n, true); });
+  // 绘制连接线拖拽
+  if (connDrag) {
+    const from = nodes.find(n => n.id === connDrag.fromId);
+    if (from) {
+      const fx = from.x + (from.width || NODE_MIN_W);
+      const fy = from.y + (from.height || NODE_H) / 2;
+      const w = screenToWorld(connDrag.currentX, connDrag.currentY);
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.bezierCurveTo((fx + w.x) / 2, fy, (fx + w.x) / 2, w.y, w.x, w.y);
+      ctx.strokeStyle = 'rgba(79, 195, 247, 0.6)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // 终点圆
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(79, 195, 247, 0.4)';
+      ctx.fill();
+    }
+  }
+
   ctx.restore();
   drawHUD();
 }
@@ -230,7 +253,7 @@ function drawEdge(from, to) {
 function drawNode(node, selected) {
   const x = node.x, y = node.y, w = node.width || NODE_MIN_W, h = node.height || NODE_H;
   const color = node.color || '#4fc3f7';
-  const r = 8;
+  const shape = node.shape || 'rect';
 
   ctx.save();
   ctx.shadowColor = selected ? 'rgba(79, 195, 247, 0.5)' : 'rgba(0,0,0,0.3)';
@@ -241,38 +264,56 @@ function drawNode(node, selected) {
   grad.addColorStop(0, selected ? '#2a3a6a' : '#1e2a4a');
   grad.addColorStop(1, selected ? '#1e2a50' : '#162040');
 
-  ctx.beginPath(); ctx.roundRect(x, y, 4, h, { upperLeft: r, lowerLeft: r });
-  ctx.fillStyle = color; ctx.fill();
+  function drawBody() {
+    switch (shape) {
+      case 'ellipse': ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); break;
+      case 'diamond':
+        ctx.moveTo(x + w / 2, y); ctx.lineTo(x + w, y + h / 2);
+        ctx.lineTo(x + w / 2, y + h); ctx.lineTo(x, y + h / 2);
+        ctx.closePath(); break;
+      default: ctx.roundRect(x, y, w, h, 8); break;
+    }
+  }
 
-  ctx.beginPath(); ctx.roundRect(x + 4, y, w - 4, h, { upperRight: r, lowerRight: r });
-  ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath(); drawBody(); ctx.fillStyle = grad; ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = selected ? '#4fc3f7' : 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = selected ? 1.5 : 1;
-  ctx.beginPath(); ctx.roundRect(x + 4, y, w - 4, h, { upperRight: r, lowerRight: r }); ctx.stroke();
 
+  // 左侧色条（仅 rect 有）
+  if (shape === 'rect') {
+    ctx.beginPath(); ctx.roundRect(x, y, 4, h, { upperLeft: 8, lowerLeft: 8 });
+    ctx.fillStyle = color; ctx.fill();
+    ctx.strokeStyle = selected ? color : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = selected ? 1.5 : 0.5;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 8); ctx.stroke();
+  } else {
+    ctx.strokeStyle = selected ? color : 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = selected ? 1.5 : 0.5;
+    ctx.beginPath(); drawBody(); ctx.stroke();
+  }
+
+  // 选中虚线框
   if (selected) {
-    ctx.strokeStyle = 'rgba(79, 195, 247, 0.3)'; ctx.lineWidth = 1;
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.roundRect(x - 3, y - 3, w + 6, h + 6, r + 2); ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(79, 195, 247, 0.35)'; ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); drawBody(); ctx.stroke();
+    ctx.restore();
   }
 
   // 文字
   ctx.fillStyle = '#e8e8f0'; ctx.font = FONT;
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const displayText = node.text || '节点';
-  const maxW = w - NODE_PAD * 2 - 4;
-  ctx.save();
-  ctx.beginPath(); ctx.roundRect(x + 4, y, w - 4, h, { upperRight: r, lowerRight: r }); ctx.clip();
-  ctx.fillText(displayText, x + NODE_PAD + 4, y + h / 2, maxW);
+  const maxW = w - 20;
+  ctx.save(); ctx.beginPath(); drawBody(); ctx.clip();
+  ctx.fillText(displayText, x + w / 2, y + h / 2, maxW);
   ctx.restore();
 
-  // 标记（右上角）
+  // 标记
   if (node.marker && MARKERS[node.marker]) {
-    ctx.font = '16px sans-serif';
-    ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-    ctx.fillText(MARKERS[node.marker], x + w - 6, y - 18);
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(MARKERS[node.marker], x + w + 4, y - 4);
   }
 
   // 折叠按钮
@@ -280,7 +321,7 @@ function drawNode(node, selected) {
   if (children.length > 0) {
     const bx = x + w + 4, by = y + h / 2 - 7;
     ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(79, 195, 247, 0.3)';
+    ctx.fillStyle = 'rgba(79, 195, 247, 0.25)';
     ctx.beginPath(); ctx.roundRect(bx, by, 14, 14, 4); ctx.fill();
     ctx.fillStyle = '#fff'; ctx.font = '11px sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -291,10 +332,8 @@ function drawNode(node, selected) {
   if (node.collapsed && children.length > 0) {
     ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
     ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x + w + 22, y + h / 2);
-    ctx.lineTo(x + w + 60, y + h / 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + w + 22, y + h / 2);
+    ctx.lineTo(x + w + 60, y + h / 2); ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.font = '10px sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -305,8 +344,14 @@ function drawNode(node, selected) {
   if (searchActive && searchQuery && (node.text||'').toLowerCase().includes(searchQuery.toLowerCase())) {
     ctx.strokeStyle = '#ffca28'; ctx.lineWidth = 2;
     ctx.setLineDash([]);
-    ctx.beginPath(); ctx.roundRect(x - 2, y - 2, w + 4, h + 4, r + 1); ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 9); ctx.stroke();
   }
+
+  // 连接点指示器
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(x + w + 10, y + h / 2, 4, 0, Math.PI * 2);
+  ctx.fillStyle = selected ? 'rgba(79, 195, 247, 0.5)' : 'rgba(79, 195, 247, 0.15)';
+  ctx.fill();
 
   ctx.restore();
 }
@@ -347,6 +392,97 @@ function hitCollapseButton(sx, sy) {
   return null;
 }
 
+// ─── 浮动节点工具栏 ──────────────────────────────────────
+let floatBar = null;
+
+function showFloatingToolbar(node) {
+  hideFloatingToolbar();
+  const bar = document.createElement('div');
+  bar.className = 'mm-float-bar';
+  document.getElementById('mindmap-editor').appendChild(bar);
+  floatBar = bar;
+
+  // 颜色
+  const cg = document.createElement('div'); cg.className = 'mm-fb-group';
+  COLORS.forEach(c => {
+    const dot = document.createElement('span');
+    dot.className = 'mm-fb-color' + (c === node.color ? ' active' : '');
+    dot.style.background = c;
+    dot.addEventListener('click', e => { e.stopPropagation(); node.color = c; hideFloatingToolbar(); render(); saveData(); pushUndo(); });
+    cg.appendChild(dot);
+  });
+  bar.appendChild(cg);
+  bar.appendChild(sepEl());
+
+  // 形状
+  [{k:'rect',l:'▭'},{k:'ellipse',l:'○'},{k:'diamond',l:'◇'}].forEach(sh => {
+    const b = document.createElement('button');
+    b.className = 'mm-fb-btn' + (node.shape === sh.k ? ' active' : '');
+    b.textContent = sh.l; b.title = sh.k;
+    b.addEventListener('click', e => { e.stopPropagation(); node.shape = sh.k; hideFloatingToolbar(); render(); saveData(); pushUndo(); });
+    bar.appendChild(b);
+  });
+  bar.appendChild(sepEl());
+
+  // 添加子节点
+  const cb = document.createElement('button');
+  cb.className = 'mm-fb-btn'; cb.textContent = '➕子';
+  cb.addEventListener('click', e => { e.stopPropagation(); hideFloatingToolbar(); addChild(); });
+  bar.appendChild(cb);
+  bar.appendChild(sepEl());
+
+  // 删除
+  const db = document.createElement('button');
+  db.className = 'mm-fb-btn mm-fb-del'; db.textContent = '🗑';
+  db.addEventListener('click', e => { e.stopPropagation(); hideFloatingToolbar(); deleteSelected(); });
+  bar.appendChild(db);
+
+  // 定位
+  setTimeout(() => {
+    const r = bar.getBoundingClientRect();
+    const ed = document.getElementById('mindmap-editor').getBoundingClientRect();
+    const cx = (node.x + (node.width || NODE_MIN_W) / 2) * camera.zoom + camera.x;
+    const ty = node.y * camera.zoom + camera.y - r.height - 6;
+    bar.style.position = 'absolute';
+    bar.style.left = Math.max(4, cx - r.width / 2) + 'px';
+    bar.style.top = Math.max(4, ty) + 'px';
+    bar.style.transform = 'none';
+  }, 0);
+
+  function sepEl() { const s = document.createElement('span'); s.className = 'mm-fb-sep'; return s; }
+}
+
+function hideFloatingToolbar() {
+  if (floatBar) { floatBar.remove(); floatBar = null; }
+}
+
+// 选中节点时显示浮动工具栏（在渲染后调用）
+function onSelectionChanged() {
+  if (selectedIds.size === 1) {
+    const node = nodes.find(n => n.id === [...selectedIds][0]);
+    if (node) showFloatingToolbar(node);
+  } else {
+    hideFloatingToolbar();
+  }
+}
+
+// ─── 连接线拖拽 ──────────────────────────────────────────
+let connDrag = null;
+
+/** 检测鼠标是否在节点右侧连接点上 */
+function hitNodeConnector(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  for (const n of nodes) {
+    const nx = n.x + (n.width || NODE_MIN_W);
+    const ny = n.y + (n.height || NODE_H) / 2;
+    if (Math.hypot(w.x - nx, w.y - ny) < 12) return n;
+    // 左侧
+    const nx2 = n.x;
+    if (Math.hypot(w.x - nx2, w.y - ny) < 12) return n;
+  }
+  return null;
+}
+
 // ─── 鼠标事件 ────────────────────────────────────────────
 canvas.addEventListener('mousedown', onMouseDown);
 canvas.addEventListener('mousemove', onMouseMove);
@@ -358,6 +494,15 @@ canvas.addEventListener('contextmenu', onContextMenu);
 function onMouseDown(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+
+  // 检查是否点击了连接点（开始拖拽连线）
+  const connH = hitNodeConnector(sx, sy);
+  if (connH) {
+    connDrag = { fromId: connH.id, startX: sx, startY: sy, currentX: sx, currentY: sy };
+    canvas.style.cursor = 'crosshair';
+    return;
+  }
+
   const collapseHit = hitCollapseButton(sx, sy);
   if (collapseHit) {
     toggleCollapse(collapseHit.id);
@@ -369,12 +514,12 @@ function onMouseDown(e) {
       if (selectedIds.has(hit.id)) selectedIds.delete(hit.id); else selectedIds.add(hit.id);
       render(); return;
     }
-    selectedIds.clear(); selectedIds.add(hit.id); render();
+    selectedIds.clear(); selectedIds.add(hit.id); render(); onSelectionChanged();
     drag.active = true; drag.nodeId = hit.id; drag.type = 'node';
     const ws = worldToScreen(hit.x, hit.y);
     drag.offX = sx - ws.x; drag.offY = sy - ws.y;
   } else {
-    selectedIds.clear(); render();
+    selectedIds.clear(); render(); onSelectionChanged();
     pan.active = true; pan.startX = sx; pan.startY = sy;
     pan.camX = camera.x; pan.camY = camera.y;
     canvas.style.cursor = 'grabbing';
@@ -384,6 +529,13 @@ function onMouseDown(e) {
 function onMouseMove(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  // 连接线拖拽
+  if (connDrag) {
+    connDrag.currentX = sx; connDrag.currentY = sy;
+    render();
+    return;
+  }
+
   if (drag.active && drag.nodeId) {
     const node = nodes.find(n => n.id === drag.nodeId);
     if (node) {
@@ -403,7 +555,28 @@ function onMouseMove(e) {
 function onMouseUp(_e) {
   if (drag.active) { saveData(); }
   drag.active = false; drag.nodeId = null;
-  pan.active = false; canvas.style.cursor = 'grab';
+  pan.active = false;
+
+  // 连接线拖拽释放
+  if (connDrag) {
+    const rect = canvas.getBoundingClientRect();
+    const sx = _e.clientX - rect.left, sy = _e.clientY - rect.top;
+    const target = hitTest(sx, sy);
+    if (target && target.id !== connDrag.fromId) {
+      // 检查是否已有连接
+      const exists = edges.some(e => e.from === connDrag.fromId && e.to === target.id);
+      if (!exists) {
+        pushUndo();
+        edges.push({ from: connDrag.fromId, to: target.id });
+        target.parentId = connDrag.fromId;
+        autoLayout();
+        render(); saveData();
+      }
+    }
+    connDrag = null;
+  }
+
+  canvas.style.cursor = 'grab';
 }
 
 function onWheel(e) {

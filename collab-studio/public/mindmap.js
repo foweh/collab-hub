@@ -100,7 +100,9 @@ window.openMindMapEditor = function(project) {
   currentProject = project;
   // 记住上次打开的导图
   try { localStorage.setItem('mm-last-id', project.id); } catch(e) {}
-  titleEl.textContent = `🧠 ${esc(project.name)}`;
+  // 去掉项目名中可能自带的 emoji（防止双图标）
+  const cleanName = (project.name || '').replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2702}-\u{27B0}\s]+/u, '');
+  titleEl.textContent = `🧠 ${esc(cleanName || project.name)}`;
   const data = project.data || { nodes: [], edges: [] };
   nodes = JSON.parse(JSON.stringify(data.nodes || []));
   edges = JSON.parse(JSON.stringify(data.edges || []));

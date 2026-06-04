@@ -114,20 +114,24 @@ window.openMindMapEditor = function(project) {
 
 // ─── 布局引擎 ────────────────────────────────────────────
 function autoLayout() {
-  const root = nodes.find(n => !n.parentId);
-  if (!root) return;
+  const roots = nodes.filter(n => !n.parentId);
+  if (roots.length === 0) return;
+
+  // 更新所有节点尺寸
   nodes.forEach(n => {
     n.textWidth = measureText(n.text || '节点');
     n.width = Math.max(NODE_MIN_W, n.textWidth + NODE_PAD * 2);
     n.height = NODE_H;
   });
-  function layoutSubtree(nodeId, x, depth) {
+
+  // 递归计算子树布局
+  function layoutSubtree(nodeId, x) {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return { totalH: 0 };
     if (node.collapsed) return { totalH: node.height + VERT_GAP };
     const children = nodes.filter(n => n.parentId === nodeId && !!n.parentId);
     if (children.length === 0) return { totalH: node.height + VERT_GAP };
-    const results = children.map(c => layoutSubtree(c.id, x + LEVEL_GAP + node.width, depth + 1));
+    const results = children.map(c => layoutSubtree(c.id, x + LEVEL_GAP + node.width));
     const totalH = results.reduce((sum, r) => sum + r.totalH, 0);
     let yOff = -totalH / 2;
     children.forEach((c, i) => {
@@ -137,10 +141,19 @@ function autoLayout() {
     });
     return { totalH: Math.max(totalH, node.height + VERT_GAP) };
   }
-  root.x = 60; root.y = 0;
-  layoutSubtree(root.id, root.x, 0);
+
+  // 布局每个根节点（纵向排列多个根）
+  let rootY = 0;
+  roots.forEach((root, ri) => {
+    root.x = 60 + ri * 30;
+    root.y = rootY;
+    const result = layoutSubtree(root.id, root.x);
+    rootY += result.totalH + 20; // 每个根子树之间留 20px 间距
+  });
+
+  // 整体居中
   const bounds = getBounds();
-  if (bounds.minY !== Infinity) {
+  if (bounds.minY !== Infinity && bounds.minY < 0) {
     const shiftY = -bounds.minY + 30;
     nodes.forEach(n => { n.y += shiftY; });
   }

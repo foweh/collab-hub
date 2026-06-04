@@ -510,9 +510,9 @@ function onMouseDown(e) {
   }
   const hit = hitTest(sx, sy);
   if (hit) {
-    if (e.shiftKey) {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
       if (selectedIds.has(hit.id)) selectedIds.delete(hit.id); else selectedIds.add(hit.id);
-      render(); return;
+      render(); onSelectionChanged(); return;
     }
     selectedIds.clear(); selectedIds.add(hit.id); render(); onSelectionChanged();
     drag.active = true; drag.nodeId = hit.id; drag.type = 'node';
@@ -615,58 +615,108 @@ function onDblClick(e) {
 let contextMenu = null;
 
 function onContextMenu(e) {
-  e.preventDefault();
-  hideContextMenu();
+  e.preventDefault(); hideContextMenu();
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   const hit = hitTest(sx, sy);
-  // 如果没点到节点但有选中的，用选中节点
-  const targetNode = hit || (selectedIds.size > 0 ? nodes.find(n => n.id === [...selectedIds][0]) : null);
-  if (!targetNode) return;
-  if (!selectedIds.has(targetNode.id)) { selectedIds.clear(); selectedIds.add(targetNode.id); render(); }
+
+  // ── 右键空白区域 ──
+  if (!hit) {
+    const menu = document.createElement('div');
+    menu.className = 'mm-context-menu';
+    menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
+    const items = [
+      { label: '➕ 新建节点', action: () => { const w = screenToWorld(sx, sy); pushUndo(); const id = addNodeInternal(null, '新节点', COLORS[nodeCounter % COLORS.length]); const n = nodes.find(x => x.id === id); if (n) { n.x = w.x - 50; n.y = w.y - NODE_H/2; } selectedIds.clear(); selectedIds.add(id); render(); saveData(); } },
+      { label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes },
+      { label: '---' },
+      { label: '⊞ 自动布局', action: autoLayoutAll },
+      { label: '⬆️ 适应屏幕', action: fitToScreen },
+      { label: '🔍 搜索', shortcut: 'Ctrl+F', action: startSearch },
+      { label: '---' },
+      { label: '🔍- 缩小', action: zoomOut },
+      { label: '🔍+ 放大', action: zoomIn },
+    ];
+    menu.innerHTML = buildMenuHTML(items);
+    document.body.appendChild(menu);
+    contextMenu = menu;
+    positionMenu(menu, e);
+    return;
+  }
+
+  // ── 右键节点 ──
+  // 如果右键点到的节点不在选中集里，选中它
+  if (!selectedIds.has(hit.id)) { selectedIds.clear(); selectedIds.add(hit.id); render(); onSelectionChanged(); }
+  const targetNode = hit;
 
   const menu = document.createElement('div');
   menu.className = 'mm-context-menu';
-  menu.style.left = e.clientX + 'px';
-  menu.style.top = e.clientY + 'px';
+  menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
   menu.dataset.nodeId = targetNode.id;
 
-  const items = [
-    { label: '✏️ 编辑文字', shortcut: 'F2', action: () => showEditor(targetNode) },
-    { label: '👶 子节点', shortcut: 'Tab', action: addChild },
-    { label: '↔️ 同级节点', shortcut: 'Enter', action: addSibling },
-    { label: '👆 上级节点', action: addParent },
-    { label: '---' },
-    { label: targetNode.collapsed ? '▶️ 展开' : '▼ 折叠', action: () => toggleCollapse(targetNode.id) },
-    { label: '🔽 展开全部', action: expandAll },
-    { label: '---' },
-    { label: '📋 复制', shortcut: 'Ctrl+C', action: copySelected },
-    { label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes },
-    { label: '✂️ 剪切', shortcut: 'Ctrl+X', action: cutSelected },
-    { label: '---' },
-    { label: '🎨 颜色', children: COLORS.map(c => ({ label: '', color: c, action: () => setNodeColor(targetNode.id, c) })) },
-    { label: '🏷️ 标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}`, action: () => setMarker(targetNode.id, targetNode.marker === k ? null : k) })) },
-    { label: '🗑️ 删除', shortcut: 'Del', action: deleteSelected },
-    { label: '---' },
-    { label: '📝 备注', action: () => showNote(targetNode) },
-    { label: '🔍 搜索', shortcut: 'Ctrl+F', action: startSearch },
-    { label: '---' },
-    { label: '⊞ 自动布局', action: autoLayoutAll },
-    { label: '⬆️ 适应屏幕', action: fitToScreen },
-    { label: '⛶ 全屏', action: openFullscreen },
-  ];
+  const items = [];
+
+  // 多个节点选中 → 连接功能
+  if (selectedIds.size >= 2) {
+    items.push({ label: '🔗 连接选中节点', action: connectSelectedNodes });
+    items.push({ label: '---' });
+  }
+
+  items.push({ label: '✏️ 编辑文字', shortcut: 'F2', action: () => showEditor(targetNode) });
+  items.push({ label: '👶 子节点', shortcut: 'Tab', action: addChild });
+  items.push({ label: '↔️ 同级节点', shortcut: 'Enter', action: addSibling });
+  items.push({ label: '👆 上级节点', action: addParent });
+  items.push({ label: '---' });
+  items.push({ label: targetNode.collapsed ? '▶️ 展开' : '▼ 折叠', action: () => toggleCollapse(targetNode.id) });
+  items.push({ label: '🔽 展开全部', action: expandAll });
+  items.push({ label: '---' });
+  items.push({ label: '📋 复制', shortcut: 'Ctrl+C', action: copySelected });
+  items.push({ label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes });
+  items.push({ label: '✂️ 剪切', shortcut: 'Ctrl+X', action: cutSelected });
+  items.push({ label: '---' });
+  items.push({ label: '🎨 颜色', children: COLORS.map(c => ({ label: '', color: c, action: () => setNodeColor(targetNode.id, c) })) });
+  items.push({ label: '🏷️ 标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}`, action: () => setMarker(targetNode.id, targetNode.marker === k ? null : k) })) });
+  items.push({ label: '🗑️ 删除', shortcut: 'Del', action: deleteSelected });
+  items.push({ label: '---' });
+  items.push({ label: '📝 备注', action: () => showNote(targetNode) });
+  items.push({ label: '🔍 搜索', shortcut: 'Ctrl+F', action: startSearch });
+  items.push({ label: '---' });
+  items.push({ label: '⊞ 自动布局', action: autoLayoutAll });
+  items.push({ label: '⬆️ 适应屏幕', action: fitToScreen });
+  items.push({ label: '⛶ 全屏', action: openFullscreen });
 
   menu.innerHTML = buildMenuHTML(items);
   document.body.appendChild(menu);
   contextMenu = menu;
+  positionMenu(menu, e);
+}
 
-  // 防止菜单超出屏幕
+function connectSelectedNodes() {
+  if (selectedIds.size < 2) return;
+  pushUndo();
+  const ids = [...selectedIds];
+  for (let i = 0; i < ids.length - 1; i++) {
+    const from = ids[i], to = ids[i + 1];
+    const exists = edges.some(e => e.from === from && e.to === to);
+    if (!exists) {
+      edges.push({ from, to });
+      const toNode = nodes.find(n => n.id === to);
+      if (toNode) toNode.parentId = from;
+    }
+  }
+  autoLayout(); render(); saveData();
+  showToast(`🔗 ${ids.length} 个节点已连接`);
+}
+
+function positionMenu(menu, e) {
   const mr = menu.getBoundingClientRect();
   if (mr.right > window.innerWidth) menu.style.left = (window.innerWidth - mr.width - 10) + 'px';
   if (mr.bottom > window.innerHeight) menu.style.top = (window.innerHeight - mr.height - 10) + 'px';
 }
 
+let _inlineIdCounter = 0;
+
 function buildMenuHTML(items) {
+  if (!window._mmInlineActions) window._mmInlineActions = {};
   let html = '<ul>';
   for (const item of items) {
     if (item.label === '---') { html += '<li class="mm-menu-sep"></li>'; continue; }
@@ -680,8 +730,13 @@ function buildMenuHTML(items) {
         }
       }
       html += '</ul></li>';
+    } else if (item.action && !item.shortcut) {
+      // 内联 action：用唯一 id 关联，避免 textContent 匹配歧义
+      const id = 'mi' + (++_inlineIdCounter);
+      window._mmInlineActions[id] = item.action;
+      html += `<li data-inline-id="${id}"><span>${item.label}</span></li>`;
     } else {
-      html += `<li data-action="${item.action ? 'exec' : ''}"><span>${item.label}</span>${item.shortcut ? `<span class="mm-menu-shortcut">${item.shortcut}</span>` : ''}</li>`;
+      html += `<li data-action="text"><span>${item.label}</span>${item.shortcut ? `<span class="mm-menu-shortcut">${item.shortcut}</span>` : ''}</li>`;
     }
   }
   html += '</ul>';
@@ -721,6 +776,14 @@ document.addEventListener('click', (e) => {
     return;
   }
 
+  // 优先用内联 action（通过 data-inline-id 关联）
+  const inlineId = li.dataset.inlineId;
+  if (inlineId && window._mmInlineActions && window._mmInlineActions[inlineId]) {
+    hideContextMenu();
+    window._mmInlineActions[inlineId]();
+    return;
+  }
+
   const text = li.textContent.trim();
   hideContextMenu();
   // Match by label
@@ -741,6 +804,10 @@ document.addEventListener('click', (e) => {
     '⊞ 自动布局': autoLayoutAll,
     '⬆️ 适应屏幕': fitToScreen,
     '⛶ 全屏': openFullscreen,
+    '🔗 连接选中节点': connectSelectedNodes,
+    '➕ 新建节点': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
+    '🔍- 缩小': zoomOut,
+    '🔍+ 放大': zoomIn,
   };
   const act = actions[text];
   if (act) act();

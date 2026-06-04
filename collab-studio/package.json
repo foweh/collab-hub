@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Real-time collaborative creative studio — Scripts, Mind Maps & Stories over LAN. Zero setup, no cloud.",
   "keywords": ["collaboration", "mindmap", "screenplay", "story", "LAN", "real-time", "creative-writing"],
-  "homepage": "https://github.com/<你的用户名>/collab-studio",
+  "homepage": "https://github.com/foweh/collab-studio",
   "license": "MIT",
   "author": "CollabStudio",
   "main": "server.js",

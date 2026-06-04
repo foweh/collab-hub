@@ -367,11 +367,16 @@ function drawNode(node, selected) {
     ctx.beginPath(); ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 9); ctx.stroke();
   }
 
-  // 连接点指示器
+  // 连接点指示器（加大）
   ctx.shadowBlur = 0;
-  ctx.beginPath(); ctx.arc(x + w + 10, y + h / 2, 4, 0, Math.PI * 2);
-  ctx.fillStyle = selected ? 'rgba(79, 195, 247, 0.5)' : 'rgba(79, 195, 247, 0.15)';
+  ctx.beginPath(); ctx.arc(x + w + 10, y + h / 2, 7, 0, Math.PI * 2);
+  ctx.fillStyle = selected ? 'rgba(79, 195, 247, 0.7)' : 'rgba(79, 195, 247, 0.2)';
   ctx.fill();
+  ctx.strokeStyle = 'rgba(79, 195, 247, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // 悬浮提示（hover 时变大）
+  // 鼠标移到连接点上会触发 hitNodeConnector → cursor: crosshair
 
   ctx.restore();
 }
@@ -493,12 +498,10 @@ let connDrag = null;
 function hitNodeConnector(sx, sy) {
   const w = screenToWorld(sx, sy);
   for (const n of nodes) {
-    const nx = n.x + (n.width || NODE_MIN_W);
+    // 右侧连接点（x + w + 10 处画的小圆）
+    const nx = n.x + (n.width || NODE_MIN_W) + 10;
     const ny = n.y + (n.height || NODE_H) / 2;
-    if (Math.hypot(w.x - nx, w.y - ny) < 12) return n;
-    // 左侧
-    const nx2 = n.x;
-    if (Math.hypot(w.x - nx2, w.y - ny) < 12) return n;
+    if (Math.hypot(w.x - nx, w.y - ny) < 18) return n;
   }
   return null;
 }
@@ -568,7 +571,9 @@ function onMouseMove(e) {
     camera.x = pan.camX + (sx - pan.startX); camera.y = pan.camY + (sy - pan.startY);
     render();
   } else {
-    canvas.style.cursor = hitTest(sx, sy) ? 'pointer' : 'grab';
+    if (hitNodeConnector(sx, sy)) canvas.style.cursor = 'crosshair';
+    else if (hitTest(sx, sy)) canvas.style.cursor = 'pointer';
+    else canvas.style.cursor = 'grab';
   }
 }
 
@@ -716,7 +721,7 @@ function connectSelectedNodes() {
       if (toNode) toNode.parentId = from;
     }
   }
-  autoLayout(); render(); saveData();
+  render(); saveData();
   showToast(`🔗 ${ids.length} 个节点已连接`);
 }
 

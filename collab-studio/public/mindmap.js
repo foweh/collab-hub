@@ -1201,9 +1201,17 @@ function fitToScreen() {
 }
 
 function openFullscreen() {
-  if (!currentProject) return;
-  const base = window.location.origin;
-  window.open(`${base}/mindmap-full.html?project=${currentProject.id}&serverId=${serverId}`, 'mindmap-full', 'width=1400,height=900');
+  const el = document.getElementById('mindmap-editor');
+  if (!el) return;
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    el.requestFullscreen().catch(() => {
+      // 某些浏览器可能需要不同前缀
+      if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else if (el.msRequestFullscreen) el.msRequestFullscreen();
+    });
+  }
 }
 
 function exportImage() {

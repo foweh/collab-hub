@@ -44,9 +44,16 @@
     }
     .mm-inline-editor {
       position: fixed; z-index: 100;
-      background: #1e2a4a; border: 2px solid #4fc3f7; border-radius: 6px;
-      padding: 4px 10px; color: #e0e0f0; font-size: 14px; outline: none;
-      font-family: inherit;
+      box-sizing: border-box;
+      background: linear-gradient(180deg, #1e2a4a 0%, #162040 100%);
+      border: none;
+      border-left: 4px solid #4fc3f7;
+      border-radius: 8px;
+      padding: 0 4px;
+      color: #e8e8f0; font-size: 14px; outline: none;
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      text-align: center;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
     }
   </style>
 </head>

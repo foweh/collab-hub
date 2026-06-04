@@ -29,6 +29,32 @@ const FONT = '14px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
 const COLORS = ['#4fc3f7','#7c4dff','#ff7043','#66bb6a','#ffca28','#ec407a','#26c6da','#ab47bc'];
 const MARKERS = { 'priority1':'🔴','priority2':'🟠','priority3':'🟡','priority4':'🔵','priority5':'⚪','done':'✅','progress':'🔄','star':'⭐','important':'❗','question':'❓','idea':'💡','warning':'⚠️' };
 
+// ─── 边查询工具函数 ──────────────────────────────────────
+function getChildren(nodeId) {
+  return edges.filter(e => e.from === nodeId).map(e => nodes.find(n => n.id === e.to)).filter(Boolean);
+}
+
+function getChildIds(nodeId) {
+  return edges.filter(e => e.from === nodeId).map(e => e.to);
+}
+
+function getParentIds(nodeId) {
+  return edges.filter(e => e.to === nodeId).map(e => e.from);
+}
+
+function getRootIds() {
+  const hasInEdge = new Set(edges.map(e => e.to));
+  return nodes.filter(n => !hasInEdge.has(n.id)).map(n => n.id);
+}
+
+function collectDescendants(id, visited = new Set()) {
+  visited.add(id);
+  for (const childId of getChildIds(id)) {
+    if (!visited.has(childId)) collectDescendants(childId, visited);
+  }
+  return visited;
+}
+
 // ─── 撤销栈 ──────────────────────────────────────────────
 let undoStack = [];
 let redoStack = [];
@@ -109,10 +135,10 @@ window.openMindMapEditor = function(project) {
   nodeCounter = nodes.reduce((m, n) => Math.max(m, parseInt(n.id.replace('n','')) || 0), 0);
   undoStack = []; redoStack = [];
   if (nodes.length === 0) {
-    addNodeInternal(null, '中心主题', COLORS[0]);
+    addNodeInternal('中心主题', COLORS[0]);
     autoLayout();
   }
-  const root = nodes.find(n => !n.parentId);
+  const root = nodes.find(n => getParentIds(n.id).length === 0);
   if (root) { camera.x = canvas.width / 2 - root.x; camera.y = canvas.height / 3 - root.y; camera.zoom = 1; }
   selectedIds.clear();
   setTimeout(mmResize, 50);
@@ -121,7 +147,8 @@ window.openMindMapEditor = function(project) {
 
 // ─── 布局引擎 ────────────────────────────────────────────
 function autoLayout() {
-  const roots = nodes.filter(n => !n.parentId);
+  const rootIds = getRootIds();
+  const roots = rootIds.map(id => nodes.find(n => n.id === id)).filter(Boolean);
   if (roots.length === 0) return;
 
   // 更新所有节点尺寸
@@ -136,7 +163,7 @@ function autoLayout() {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return { totalH: 0 };
     if (node.collapsed) return { totalH: node.height + VERT_GAP };
-    const children = nodes.filter(n => n.parentId === nodeId && !!n.parentId);
+    const children = getChildren(nodeId);
     if (children.length === 0) return { totalH: node.height + VERT_GAP };
     const results = children.map(c => layoutSubtree(c.id, x + LEVEL_GAP + node.width));
     const totalH = results.reduce((sum, r) => sum + r.totalH, 0);
@@ -235,11 +262,15 @@ function isCollapsed(id) {
 }
 
 function isCollapsedAncestor(id) {
-  let n = nodes.find(x => x.id === id);
-  while (n && n.parentId) {
-    const parent = nodes.find(x => x.id === n.parentId);
-    if (parent && parent.collapsed) return true;
-    n = parent;
+  const visited = new Set();
+  const queue = [...getParentIds(id)];
+  while (queue.length) {
+    const pid = queue.shift();
+    if (visited.has(pid)) continue;
+    visited.add(pid);
+    const p = nodes.find(n => n.id === pid);
+    if (p && p.collapsed) return true;
+    queue.push(...getParentIds(pid));
   }
   return false;
 }
@@ -337,7 +368,7 @@ function drawNode(node, selected) {
   }
 
   // 折叠按钮
-  const children = nodes.filter(n => n.parentId === node.id);
+  const children = getChildren(node.id);
   if (children.length > 0) {
     const bx = x + w + 4, by = y + h / 2 - 7;
     ctx.shadowBlur = 0;
@@ -409,7 +440,7 @@ function hitTest(sx, sy) {
 function hitCollapseButton(sx, sy) {
   const w = screenToWorld(sx, sy);
   for (const n of nodes) {
-    const children = nodes.filter(c => c.parentId === n.id);
+    const children = getChildren(n.id);
     if (children.length === 0) continue;
     const bx = n.x + (n.width||NODE_MIN_W) + 4, by = n.y + (n.height||NODE_H)/2 - 7;
     if (w.x >= bx && w.x <= bx + 14 && w.y >= by && w.y <= by + 14) return n;
@@ -593,8 +624,6 @@ function onMouseUp(_e) {
       if (!exists) {
         pushUndo();
         edges.push({ from: connDrag.fromId, to: target.id });
-        target.parentId = connDrag.fromId;
-        autoLayout();
         render(); saveData();
       }
     }
@@ -625,15 +654,6 @@ function onDblClick(e) {
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   const hit = hitTest(sx, sy);
   if (hit) { showEditor(hit); }
-  else {
-    const w = screenToWorld(sx, sy);
-    pushUndo();
-    const id = addNodeInternal(null, '新节点', COLORS[nodeCounter % COLORS.length]);
-    const node = nodes.find(n => n.id === id);
-    if (node) { node.x = w.x - 50; node.y = w.y - NODE_H / 2; }
-    selectedIds.clear(); selectedIds.add(id);
-    render(); saveData(); showEditor(node);
-  }
 }
 
 // ─── 右键菜单 ────────────────────────────────────────────
@@ -651,7 +671,7 @@ function onContextMenu(e) {
     menu.className = 'mm-context-menu';
     menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     const items = [
-      { label: '➕ 新建节点', action: () => { const w = screenToWorld(sx, sy); pushUndo(); const id = addNodeInternal(null, '新节点', COLORS[nodeCounter % COLORS.length]); const n = nodes.find(x => x.id === id); if (n) { n.x = w.x - 50; n.y = w.y - NODE_H/2; } selectedIds.clear(); selectedIds.add(id); render(); saveData(); } },
+      { label: '➕ 新建节点', action: () => { const w = screenToWorld(sx, sy); pushUndo(); const id = addNodeInternal('新节点', COLORS[nodeCounter % COLORS.length]); const n = nodes.find(x => x.id === id); if (n) { n.x = w.x - 50; n.y = w.y - NODE_H/2; } selectedIds.clear(); selectedIds.add(id); render(); saveData(); } },
       { label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes },
       { label: '---' },
       { label: '⊞ 自动布局', action: autoLayoutAll },
@@ -717,8 +737,6 @@ function connectSelectedNodes() {
     const exists = edges.some(e => e.from === from && e.to === to);
     if (!exists) {
       edges.push({ from, to });
-      const toNode = nodes.find(n => n.id === to);
-      if (toNode) toNode.parentId = from;
     }
   }
   render(); saveData();
@@ -829,11 +847,10 @@ document.addEventListener('click', (e) => {
 });
 
 // ─── 节点操作 ────────────────────────────────────────────
-function addNodeInternal(parentId, text, color) {
+function addNodeInternal(text, color) {
   const id = 'n' + (++nodeCounter);
   const nw = measureText(text) + NODE_PAD * 2 + 10;
-  nodes.push({ id, text: text || '节点', x: 0, y: 0, width: Math.max(NODE_MIN_W, nw), height: NODE_H, color: color || COLORS[0], parentId: parentId || null, collapsed: false, marker: null, note: '' });
-  if (parentId) edges.push({ from: parentId, to: id });
+  nodes.push({ id, text: text || '节点', x: 0, y: 0, width: Math.max(NODE_MIN_W, nw), height: NODE_H, color: color || COLORS[0], collapsed: false, marker: null, note: '' });
   return id;
 }
 
@@ -869,11 +886,12 @@ function findVacantSpot(baseX, baseY, w, h, excludeId) {
 function addChild() {
   const parent = getSelectedNode(); if (!parent) return;
   pushUndo();
-  const id = addNodeInternal(parent.id, '子节点', COLORS[(nodeCounter + 1) % COLORS.length]);
+  const id = addNodeInternal('子节点', COLORS[(nodeCounter + 1) % COLORS.length]);
+  edges.push({ from: parent.id, to: id });
   const child = nodes.find(n => n.id === id);
   const ch = child.height || NODE_H;
   // 计算已有子节点数量
-  const existingChildren = nodes.filter(n => n.parentId === parent.id && n.id !== id);
+  const existingChildren = getChildren(parent.id).filter(c => c.id !== id);
   const baseX = parent.x + (parent.width || NODE_MIN_W) + LEVEL_GAP;
   const baseY = existingChildren.length > 0
     ? existingChildren[existingChildren.length - 1].y
@@ -887,12 +905,16 @@ function addChild() {
 }
 
 function addSibling() {
-  const ref = getSelectedNode(); if (!ref || !ref.parentId) return;
+  const ref = getSelectedNode(); if (!ref) return;
+  const parentIds = getParentIds(ref.id);
+  if (parentIds.length === 0) return;
+  const parentId = parentIds[0];
   pushUndo();
-  const id = addNodeInternal(ref.parentId, '同级节点', COLORS[nodeCounter % COLORS.length]);
+  const id = addNodeInternal('同级节点', COLORS[nodeCounter % COLORS.length]);
+  edges.push({ from: parentId, to: id });
   const sibling = nodes.find(n => n.id === id);
   const sh = sibling.height || NODE_H;
-  const existing = nodes.filter(n => n.parentId === ref.parentId);
+  const existing = getChildren(parentId);
   const lastY = existing.reduce((max, n) => Math.max(max, n.y + (n.height || NODE_H)), 0);
   const spot = findVacantSpot(ref.x, lastY + VERT_GAP, sibling.width || NODE_MIN_W, sh, id);
   sibling.x = spot.x; sibling.y = spot.y;
@@ -903,15 +925,12 @@ function addSibling() {
 function addParent() {
   const child = getSelectedNode(); if (!child) return;
   pushUndo();
-  const oldParentId = child.parentId;
-  const id = addNodeInternal(oldParentId, '上级节点', COLORS[nodeCounter % COLORS.length]);
+  const id = addNodeInternal('上级节点', COLORS[nodeCounter % COLORS.length]);
   const parent = nodes.find(n => n.id === id);
-  child.parentId = id;
-  // 更新边
-  if (oldParentId) {
-    const oldEdge = edges.find(e => e.from === oldParentId && e.to === child.id);
-    if (oldEdge) oldEdge.to = id;
-  }
+  // 将原有指向 child 的边重定向到新节点
+  const incomingEdges = edges.filter(e => e.to === child.id);
+  incomingEdges.forEach(e => { e.to = id; });
+  // 新节点 → child
   edges.push({ from: id, to: child.id });
   parent.x = child.x - 120; parent.y = child.y;
   selectedIds.clear(); selectedIds.add(id);
@@ -921,9 +940,11 @@ function addParent() {
 function deleteSelected() {
   if (selectedIds.size === 0) return;
   pushUndo();
-  const toDelete = new Set(selectedIds);
-  function collectChildren(id) { nodes.filter(n => n.parentId === id).forEach(c => { toDelete.add(c.id); collectChildren(c.id); }); }
-  for (const id of selectedIds) collectChildren(id);
+  const toDelete = new Set();
+  for (const id of selectedIds) {
+    const descendants = collectDescendants(id);
+    for (const did of descendants) toDelete.add(did);
+  }
   nodes = nodes.filter(n => !toDelete.has(n.id));
   edges = edges.filter(e => !toDelete.has(e.from) && !toDelete.has(e.to));
   selectedIds.clear();
@@ -960,11 +981,12 @@ let clipboard = null;
 function copySelected() {
   if (selectedIds.size === 0) return;
   const rootId = [...selectedIds][0];
-  const toCopy = new Set();
-  function collect(id) { toCopy.add(id); nodes.filter(n => n.parentId === id).forEach(c => collect(c.id)); }
-  collect(rootId);
+  const toCopy = collectDescendants(rootId);
   clipboard = {
-    nodes: nodes.filter(n => toCopy.has(n.id)).map(n => ({...n, id: undefined, parentId: undefined })),
+    nodes: nodes.filter(n => toCopy.has(n.id)).map(n => {
+      const { parentId, ...rest } = n;
+      return { ...rest, id: undefined };
+    }),
     edges: edges.filter(e => toCopy.has(e.from) && toCopy.has(e.to)).map(e => ({...e})),
   };
   showToast(`📋 已复制 ${clipboard.nodes.length} 个节点`);
@@ -985,15 +1007,10 @@ function pasteNodes() {
   const newNodes = clipboard.nodes.map(n => {
     const newId = 'n' + (++nodeCounter);
     idMap[n.id || 'old'] = newId;
-    return { ...n, id: newId };
+    const { parentId, ...rest } = n;
+    return { ...rest, id: newId };
   });
-  // 重建父子关系
-  const oldIds = clipboard.nodes.map(n => n.id);
-  newNodes.forEach(n => {
-    if (n.parentId && idMap[n.parentId]) n.parentId = idMap[n.parentId];
-    else n.parentId = parent.id;
-  });
-  // 重建边
+  // 重建边（边已包含所有连接关系，不再需要 parentId）
   const newEdges = clipboard.edges.map(e => ({
     from: idMap[e.from] || parent.id,
     to: idMap[e.to] || (newNodes[0] ? newNodes[0].id : ''),
@@ -1061,8 +1078,8 @@ function showEditor(node) {
   acquireLock('mindmap-node', node.id);
   currentEditNodeId = node.id;
 
-  const s = worldToScreen(node.x + 4, node.y);
-  const sw = (node.width || NODE_MIN_W) * camera.zoom - 4;
+  const s = worldToScreen(node.x, node.y);
+  const sw = (node.width || NODE_MIN_W) * camera.zoom;
   const sh = (node.height || NODE_H) * camera.zoom;
 
   const input = document.createElement('input');
@@ -1071,9 +1088,21 @@ function showEditor(node) {
   input.style.left = s.x + 'px'; input.style.top = s.y + 'px';
   input.style.width = sw + 'px'; input.style.height = sh + 'px';
   input.style.fontSize = Math.round(14 * camera.zoom) + 'px';
+  input.style.borderLeftColor = node.color || '#4fc3f7';
   canvas.parentElement.appendChild(input);
   input.focus(); input.select();
   editorInput = input;
+
+  // 实时自动调整宽度
+  function resizeInput() {
+    const tw = measureText(input.value || '节点');
+    const nw = Math.max(NODE_MIN_W, tw + NODE_PAD * 2);
+    node.width = nw;
+    node.textWidth = tw;
+    input.style.width = (nw * camera.zoom - 4) + 'px';
+    render();
+  }
+  input.addEventListener('input', resizeInput);
 
   const finish = () => {
     if (currentEditNodeId) { releaseLock('mindmap-node', currentEditNodeId); currentEditNodeId = null; }
@@ -1171,7 +1200,7 @@ document.addEventListener('keydown', (e) => {
 // ─── 工具栏 ──────────────────────────────────────────────
 document.getElementById('mm-add-root').addEventListener('click', () => {
   pushUndo();
-  const id = addNodeInternal(null, '中心主题', COLORS[0]);
+  const id = addNodeInternal('中心主题', COLORS[0]);
   autoLayout();
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData();
@@ -1324,7 +1353,7 @@ function exportImage() {
     if (n.y < minY) minY = n.y;
     // 右侧扩展：连接点 + 折叠按钮 + 折叠提示
     let rightExtra = 14; // 连接点
-    if (nodes.filter(c => c.parentId === n.id).length > 0) rightExtra = Math.max(rightExtra, 20); // 折叠按钮
+    if (getChildren(n.id).length > 0) rightExtra = Math.max(rightExtra, 20); // 折叠按钮
     if (n.collapsed) rightExtra = Math.max(rightExtra, 70); // 折叠提示线
     if (n.marker) { // 标记在上面
       if (n.y - 24 < minY) minY = n.y - 24;
@@ -1454,7 +1483,7 @@ function exportImage() {
     }
 
     // 折叠按钮
-    const children = nodes.filter(c => c.parentId === n.id);
+    const children = getChildren(n.id);
     if (children.length > 0) {
       const bx = x + w + 4, by = y + h / 2 - 7;
       expCtx.fillStyle = 'rgba(79, 195, 247, 0.25)';

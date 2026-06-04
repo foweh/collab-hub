@@ -261,6 +261,14 @@ navBtns.forEach(btn => {
   });
 });
 
+// 分镜导航按钮（不走 data-module 模式）
+document.getElementById('nav-storyboard').addEventListener('click', () => {
+  navBtns.forEach(b => b.classList.remove('active'));
+  document.getElementById('nav-storyboard').classList.add('active');
+  panels.forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-storyboard').classList.add('active');
+});
+
 function initUI() {
   if (projects.length === 0) {
     createDefaultProject('script', '📜 未命名剧本');
@@ -277,7 +285,6 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
-    case 'storyboard': return { scenes: [], shots: [] };
     default: return {};
   }
 }
@@ -298,10 +305,7 @@ $('#new-story-btn').addEventListener('click', () => {
   const name = prompt('故事名称:', '新故事');
   if (name) socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') });
 });
-$('#new-storyboard-btn').addEventListener('click', () => {
-  const name = prompt('分镜名称:', '新分镜');
-  if (name) socket.emit('project-create', { type: 'storyboard', name, data: getDefaultData('storyboard') });
-});
+
 
 function renderProjects() {
   projectList.innerHTML = '';
@@ -310,8 +314,8 @@ function renderProjects() {
     return;
   }
   projects.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖', storyboard: '🎞' };
-    const names = { script: '剧本', mindmap: '思维导图', story: '故事', storyboard: '分镜' };
+    const icons = { script: '📜', mindmap: '🧠', story: '📖' };
+    const names = { script: '剧本', mindmap: '思维导图', story: '故事' };
     const card = document.createElement('div');
     card.className = 'project-card';
     card.innerHTML = `
@@ -344,7 +348,6 @@ function openProject(p) {
     case 'script':  window.openScriptEditor(p); break;
     case 'mindmap': window.openMindMapEditor(p); break;
     case 'story':   window.openStoryEditor(p); break;
-    case 'storyboard': window.openStoryboardEditor(p); break;
   }
 }
 

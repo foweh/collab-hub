@@ -62,8 +62,9 @@
           <span class="nav-icon">📖</span>
           <span class="nav-label">故事</span>
         </button>
-        <button class="nav-btn" data-module="storyboard" title="分镜">
-          <span class="nav-icon">🎞</span>
+
+        <button class="nav-btn" id="nav-storyboard" title="手绘分镜">
+          <span class="nav-icon">🎬</span>
           <span class="nav-label">分镜</span>
         </button>
         <button class="nav-btn" data-module="devices" title="设备管理">
@@ -91,7 +92,6 @@
               <button class="toolbar-btn" id="new-script-btn">+ 剧本</button>
               <button class="toolbar-btn" id="new-mindmap-btn">+ 思维导图</button>
               <button class="toolbar-btn" id="new-story-btn">+ 故事</button>
-              <button class="toolbar-btn" id="new-storyboard-btn">+ 分镜</button>
             </div>
           </div>
           <div id="project-list" class="project-grid"></div>
@@ -154,48 +154,13 @@
         <!-- 分镜面板 -->
         <section id="panel-storyboard" class="module-panel">
           <div class="panel-header">
-            <h2 id="storyboard-title">🎞 分镜编辑器</h2>
+            <h2>🎬 分镜工具</h2>
             <div class="panel-actions">
-              <button class="toolbar-btn" id="sb-add-scene">+ 场次</button>
               <button class="toolbar-btn" id="sb-back">← 返回项目</button>
             </div>
           </div>
-          <div id="storyboard-editor" class="module-body">
-            <div id="sb-layout">
-              <!-- 场次列表 -->
-              <aside id="sb-scene-list">
-                <div class="editor-placeholder">无场次，点击上方添加</div>
-              </aside>
-              <!-- 镜头表格 -->
-              <div id="sb-shot-area">
-                <div id="sb-shot-toolbar">
-                  <button class="tool-btn" id="sb-add-shot">+ 镜头</button>
-                  <button class="tool-btn danger" id="sb-del-shot">删除选中</button>
-                  <span id="sb-shot-count" style="color:var(--text-dim);font-size:12px;margin-left:auto"></span>
-                </div>
-                <div id="sb-shot-table-wrap">
-                  <table id="sb-shot-table">
-                    <thead>
-                      <tr>
-                        <th style="width:36px"><input type="checkbox" id="sb-select-all"></th>
-                        <th style="width:40px">#</th>
-                        <th style="width:50px">镜号</th>
-                        <th style="width:100px">画面</th>
-                        <th style="width:60px">景别</th>
-                        <th style="width:50px">时长</th>
-                        <th style="min-width:120px">内容</th>
-                        <th style="min-width:80px">备注</th>
-                        <th style="min-width:80px">参考</th>
-                        <th style="min-width:80px">场面期待</th>
-                        <th style="width:60px">声音</th>
-                        <th style="width:60px">运镜</th>
-                      </tr>
-                    </thead>
-                    <tbody id="sb-shot-body"></tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+          <div id="storyboard-frame" class="module-body" style="padding:0">
+            <iframe src="/storyboard/index.html" style="width:100%;height:100%;border:none;background:#0f0f1a"></iframe>
           </div>
         </section>
 
@@ -272,7 +237,6 @@
   <script src="/script-editor.js"></script>
   <script src="/mindmap.js"></script>
   <script src="/story-editor.js"></script>
-  <script src="/storyboard-editor.js"></script>
   <script src="/devices.js"></script>
 </body>
 </html>

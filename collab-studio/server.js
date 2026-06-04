@@ -119,6 +119,7 @@ const io = new SocketIOServer(server, {
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/storyboard', express.static(path.join(__dirname, 'public/storyboard')));
 
 // ─── UDP 发现 ────────────────────────────────────────────
 function broadcastDiscover() {}
@@ -387,12 +388,119 @@ function broadcastPeers() {
   broadcastToBrowsers({ type: 'peers-update', peers: list });
 }
 
+// ─── 分镜工具 namespace ──────────────────────────────────
+const storyboardNsp = io.of('/storyboard');
+let sbFrames = [];       // [{ id, strokes: [{points, color, size, eraser}], notes }]
+let sbUsers = [];        // [{ id, name }]
+let sbMessages = [];     // [{ userId, userName, text, time }]
+let sbFrameCounter = 0;
+
+storyboardNsp.on('connection', (socket) => {
+  console.log(`[分镜连接] ${socket.id}`);
+
+  socket.emit('state-sync', {
+    projectName: '未命名分镜',
+    frames: sbFrames,
+    users: sbUsers,
+    messages: sbMessages,
+  });
+
+  socket.on('join', (name) => {
+    const displayName = name || `用户_${socket.id.slice(0, 4)}`;
+    const user = { id: socket.id, name: displayName };
+    sbUsers.push(user);
+    socket.userData = user;
+    storyboardNsp.emit('user-joined', user);
+    storyboardNsp.emit('users-update', sbUsers.map(u => ({ id: u.id, name: u.name })));
+    console.log(`[分镜加入] ${displayName}`);
+  });
+
+  socket.on('add-frame', () => {
+    const frame = { id: ++sbFrameCounter, strokes: [], notes: '' };
+    sbFrames.push(frame);
+    socket.emit('frame-added', frame);
+    socket.broadcast.emit('frame-added', frame);
+  });
+
+  socket.on('delete-frame', (frameId) => {
+    sbFrames = sbFrames.filter(f => f.id !== frameId);
+    storyboardNsp.emit('frame-deleted', frameId);
+  });
+
+  socket.on('clear-frames', () => {
+    sbFrames = [];
+    sbFrameCounter = 0;
+    storyboardNsp.emit('frames-cleared');
+  });
+
+  socket.on('reorder-frames', (newOrder) => {
+    const map = {};
+    sbFrames.forEach(f => { map[f.id] = f; });
+    sbFrames = newOrder.map(id => map[id]).filter(Boolean);
+    socket.broadcast.emit('frames-reordered', newOrder);
+  });
+
+  socket.on('draw-stroke', ({ frameId, stroke }) => {
+    const frame = sbFrames.find(f => f.id === frameId);
+    if (frame) {
+      frame.strokes.push(stroke);
+      socket.broadcast.emit('stroke-drawn', { frameId, stroke });
+    }
+  });
+
+  socket.on('undo-stroke', (frameId) => {
+    const frame = sbFrames.find(f => f.id === frameId);
+    if (frame && frame.strokes.length > 0) {
+      frame.strokes.pop();
+      socket.emit('stroke-undone', { frameId });
+      socket.broadcast.emit('stroke-undone', { frameId });
+    }
+  });
+
+  socket.on('clear-canvas-frame', ({ frameId }) => {
+    const frame = sbFrames.find(f => f.id === frameId);
+    if (frame) {
+      frame.strokes = [];
+      socket.emit('canvas-frame-cleared', { frameId });
+      socket.broadcast.emit('canvas-frame-cleared', { frameId });
+    }
+  });
+
+  socket.on('update-notes', ({ frameId, notes }) => {
+    const frame = sbFrames.find(f => f.id === frameId);
+    if (frame) {
+      frame.notes = notes;
+      socket.broadcast.emit('notes-updated', { frameId, notes });
+    }
+  });
+
+  socket.on('update-project-name', (name) => {
+    socket.broadcast.emit('project-name-updated', name);
+  });
+
+  socket.on('chat-message', (text) => {
+    if (!socket.userData) return;
+    const msg = { userId: socket.userData.id, userName: socket.userData.name, text, time: Date.now() };
+    sbMessages.push(msg);
+    if (sbMessages.length > 200) sbMessages.splice(0, 100);
+    storyboardNsp.emit('chat-message', msg);
+  });
+
+  socket.on('disconnect', () => {
+    if (socket.userData) {
+      sbUsers = sbUsers.filter(u => u.id !== socket.id);
+      storyboardNsp.emit('user-left', socket.userData.id);
+      storyboardNsp.emit('users-update', sbUsers.map(u => ({ id: u.id, name: u.name })));
+      console.log(`[分镜离开] ${socket.userData.name}`);
+    }
+  });
+});
+
 function getDefaultData(type) {
   switch (type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
-    case 'storyboard': return { scenes: [], shots: [] };
     default: return {};
   }
 }

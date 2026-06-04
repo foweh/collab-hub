@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分镜协作工具</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- ─── 入场弹窗 ─── -->
+  <div id="join-overlay">
+    <div class="join-card">
+      <h1>🎬 分镜协作</h1>
+      <p>输入昵称进入协作</p>
+      <div class="join-input-group">
+        <input type="text" id="name-input" placeholder="你的昵称..." maxlength="12" autofocus>
+        <button id="join-btn">进入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 主界面 ─── -->
+  <div id="app" style="display:none">
+    <!-- 顶部栏 -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <input type="text" id="project-name" value="未命名分镜" maxlength="30">
+        <span class="badge" id="online-badge">🟢 0 在线</span>
+      </div>
+      <div class="topbar-right">
+        <button class="toolbar-btn" id="add-frame-btn" title="添加分镜">➕ 添加分镜</button>
+        <button class="toolbar-btn danger" id="clear-all-btn" title="清空所有分镜">🗑️ 清空</button>
+      </div>
+    </header>
+
+    <!-- 主体 -->
+    <div id="main-layout">
+      <!-- 帧缩略图列表 -->
+      <aside id="frame-strip">
+        <div id="frame-list"></div>
+      </aside>
+
+      <!-- 画布区域 -->
+      <main id="canvas-area">
+        <!-- 绘制工具栏 -->
+        <div id="draw-toolbar">
+          <button class="tool-btn active" data-tool="brush" title="画笔">✏️ 画笔</button>
+          <button class="tool-btn" data-tool="eraser" title="橡皮">🧹 橡皮</button>
+          <input type="color" id="color-picker" value="#1a1a2e" title="颜色">
+          <label class="size-label">
+            粗细
+            <input type="range" id="size-slider" min="1" max="20" value="3">
+            <span id="size-display">3</span>
+          </label>
+          <button class="tool-btn" id="undo-btn" title="撤销">↩ 撤销</button>
+          <button class="tool-btn danger" id="clear-canvas-btn" title="清空画布">🗑️</button>
+        </div>
+        <!-- 当前帧编号 -->
+        <div id="current-frame-label"></div>
+        <canvas id="draw-canvas"></canvas>
+      </main>
+
+      <!-- 右侧面板 -->
+      <aside id="right-panel">
+        <!-- 帧备注 -->
+        <section id="notes-section">
+          <h3>📝 帧备注</h3>
+          <textarea id="notes-textarea" placeholder="描述这个分镜的画面、运镜、对白..." rows="4"></textarea>
+        </section>
+
+        <!-- 聊天 -->
+        <section id="chat-section">
+          <h3>💬 协作聊天</h3>
+          <div id="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" id="chat-input" placeholder="打字沟通..." maxlength="200">
+            <button id="chat-send-btn">发送</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/storyboard/client.js"></script>
+</body>
+</html>

@@ -1200,36 +1200,56 @@ function openFullscreen() {
 }
 
 function exportImage() {
-  // 先适应屏幕来算边界，再等比例渲染
-  const bounds = getBounds();
-  if (bounds.minX === Infinity) return;
+  if (nodes.length === 0) return;
+
+  // 计算完整边界：遍历所有节点，包括右侧连接点(+14)、标记(+24)、折叠按钮(+20)、折叠提示(+70)
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach(n => {
+    const w = (n.width || NODE_MIN_W);
+    const h = (n.height || NODE_H);
+    // 基本矩形
+    if (n.x < minX) minX = n.x;
+    if (n.y < minY) minY = n.y;
+    // 右侧扩展：连接点 + 折叠按钮 + 折叠提示
+    let rightExtra = 14; // 连接点
+    if (nodes.filter(c => c.parentId === n.id).length > 0) rightExtra = Math.max(rightExtra, 20); // 折叠按钮
+    if (n.collapsed) rightExtra = Math.max(rightExtra, 70); // 折叠提示线
+    if (n.marker) { // 标记在上面
+      if (n.y - 24 < minY) minY = n.y - 24;
+    }
+    if (n.x + w + rightExtra > maxX) maxX = n.x + w + rightExtra;
+    if (n.y + h > maxY) maxY = n.y + h;
+  });
+
   const pad = 60;
-  const w = bounds.maxX - bounds.minX + pad * 2;
-  const h = bounds.maxY - bounds.minY + pad * 2;
+  const totalW = maxX - minX + pad * 2;
+  const totalH = maxY - minY + pad * 2;
   const scale = 2; // 2x 高清
+
   const expCanvas = document.createElement('canvas');
-  expCanvas.width = w * scale;
-  expCanvas.height = h * scale;
+  expCanvas.width = Math.ceil(totalW * scale);
+  expCanvas.height = Math.ceil(totalH * scale);
   const expCtx = expCanvas.getContext('2d');
 
   // 深色背景
-  expCtx.fillStyle = '#0d0d1a'; expCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
+  expCtx.fillStyle = '#0d0d1a';
+  expCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
 
-  // 绘制网格
-  expCtx.strokeStyle = 'rgba(255,255,255,0.03)'; expCtx.lineWidth = 1;
-  for (let x = 0; x < expCanvas.width; x += 40 * scale) { expCtx.beginPath(); expCtx.moveTo(x, 0); expCtx.lineTo(x, expCanvas.height); expCtx.stroke(); }
-  for (let y = 0; y < expCanvas.height; y += 40 * scale) { expCtx.beginPath(); expCtx.moveTo(0, y); expCtx.lineTo(expCanvas.width, y); expCtx.stroke(); }
+  // 网格
+  expCtx.strokeStyle = 'rgba(255,255,255,0.03)';
+  expCtx.lineWidth = 1;
+  for (let x = 0; x < expCanvas.width; x += 40 * scale) {
+    expCtx.beginPath(); expCtx.moveTo(x, 0); expCtx.lineTo(x, expCanvas.height); expCtx.stroke();
+  }
+  for (let y = 0; y < expCanvas.height; y += 40 * scale) {
+    expCtx.beginPath(); expCtx.moveTo(0, y); expCtx.lineTo(expCanvas.width, y); expCtx.stroke();
+  }
 
-  expCtx.translate(pad * scale, pad * scale);
+  expCtx.translate(Math.ceil(pad * scale), Math.ceil(pad * scale));
   expCtx.scale(scale, scale);
+  expCtx.translate(-minX, -minY);
 
-  // 临时替换渲染函数在导出画布上绘制
-  const origNodes = nodes, origEdges = edges;
-  nodes.forEach(n => { n._x = n.x; n._y = n.y; n.x -= bounds.minX - pad; n.y -= bounds.minY - pad; });
-
-  // 使用 exportCtx 替换当前 canvas ctx 来绘制
-  const savedCtx = ctx;
-  // 简单方法：直接在导出 canvas 上重绘
+  // 绘制所有边
   edges.forEach(e => {
     const from = nodes.find(n => n.id === e.from);
     const to = nodes.find(n => n.id === e.to);
@@ -1237,40 +1257,129 @@ function exportImage() {
     if (isCollapsed(e.from) || isCollapsed(e.to) || isCollapsedAncestor(e.to)) return;
     const fx = from.x + (from.width || NODE_MIN_W);
     const fy = from.y + (from.height || NODE_H) / 2;
-    const tx = to.x, ty = to.y + (to.height || NODE_H) / 2;
+    const tx = to.x;
+    const ty = to.y + (to.height || NODE_H) / 2;
     const cx = (fx + tx) / 2;
-    expCtx.beginPath(); expCtx.moveTo(fx, fy); expCtx.bezierCurveTo(cx, fy, cx, ty, tx, ty);
-    expCtx.strokeStyle = 'rgba(79, 195, 247, 0.25)'; expCtx.lineWidth = 2.5; expCtx.stroke();
+    expCtx.beginPath();
+    expCtx.moveTo(fx, fy);
+    expCtx.bezierCurveTo(cx, fy, cx, ty, tx, ty);
+    expCtx.strokeStyle = 'rgba(79, 195, 247, 0.25)';
+    expCtx.lineWidth = 2.5;
+    expCtx.stroke();
+    // 终点小圆点
+    expCtx.beginPath();
+    expCtx.arc(tx, ty, 3, 0, Math.PI * 2);
+    expCtx.fillStyle = 'rgba(79, 195, 247, 0.4)';
+    expCtx.fill();
   });
 
+  // 绘制所有节点（用和屏幕渲染相同的方式）
+  ctx.save();
   nodes.forEach(n => {
+    const wasSelected = selectedIds.has(n.id);
+    selectedIds.delete(n.id);
+    // 临时替换 canvas context 为导出 context
+    const origCtx = ctx;
+    window.__exportCtx = expCtx;
+    // 重新定义 ctx 指向导出 canvas
+    // 但 drawNode 引用了外部 ctx 变量，无法直接替换
+    // 改用内联绘制，保证和 drawNode 效果一致
     const x = n.x, y = n.y, w = n.width || NODE_MIN_W, h = n.height || NODE_H;
     const color = n.color || '#4fc3f7';
-    const r = 8;
-    expCtx.shadowColor = 'rgba(0,0,0,0.3)'; expCtx.shadowBlur = 6; expCtx.shadowOffsetY = 2;
-    const grad = expCtx.createLinearGradient(x, y, x, y + h);
-    grad.addColorStop(0, '#1e2a4a'); grad.addColorStop(1, '#162040');
-    expCtx.beginPath(); expCtx.roundRect(x, y, 4, h, { upperLeft: r, lowerLeft: r });
-    expCtx.fillStyle = color; expCtx.fill();
-    expCtx.beginPath(); expCtx.roundRect(x + 4, y, w - 4, h, { upperRight: r, lowerRight: r });
-    expCtx.fillStyle = grad; expCtx.fill();
-    expCtx.shadowBlur = 0;
-    expCtx.fillStyle = '#e8e8f0'; expCtx.font = FONT;
-    expCtx.textAlign = 'left'; expCtx.textBaseline = 'middle';
-    expCtx.save();
-    expCtx.beginPath(); expCtx.roundRect(x + 4, y, w - 4, h, { upperRight: r, lowerRight: r }); expCtx.clip();
-    expCtx.fillText(n.text || '节点', x + NODE_PAD + 4, y + h / 2, w - NODE_PAD * 2 - 4);
-    expCtx.restore();
-  });
+    const shape = n.shape || 'rect';
 
-  // 恢复坐标
-  nodes.forEach(n => { n.x = n._x; n.y = n._y; delete n._x; delete n._y; });
+    expCtx.save();
+    expCtx.shadowColor = 'rgba(0,0,0,0.3)';
+    expCtx.shadowBlur = 6;
+    expCtx.shadowOffsetY = 2;
+
+    const grad = expCtx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#1e2a4a');
+    grad.addColorStop(1, '#162040');
+
+    function drawBody() {
+      switch (shape) {
+        case 'ellipse': expCtx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2); break;
+        case 'diamond':
+          expCtx.moveTo(x + w / 2, y); expCtx.lineTo(x + w, y + h / 2);
+          expCtx.lineTo(x + w / 2, y + h); expCtx.lineTo(x, y + h / 2);
+          expCtx.closePath(); break;
+        default: expCtx.roundRect(x, y, w, h, 8); break;
+      }
+    }
+
+    expCtx.beginPath(); drawBody(); expCtx.fillStyle = grad; expCtx.fill();
+    expCtx.shadowBlur = 0;
+
+    if (shape === 'rect') {
+      expCtx.beginPath(); expCtx.roundRect(x, y, 4, h, { upperLeft: 8, lowerLeft: 8 });
+      expCtx.fillStyle = color; expCtx.fill();
+      expCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+      expCtx.lineWidth = 0.5;
+      expCtx.beginPath(); expCtx.roundRect(x, y, w, h, 8); expCtx.stroke();
+    } else {
+      expCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+      expCtx.lineWidth = 0.5;
+      expCtx.beginPath(); drawBody(); expCtx.stroke();
+    }
+
+    // 文字
+    expCtx.fillStyle = '#e8e8f0';
+    expCtx.font = FONT;
+    expCtx.textAlign = 'center';
+    expCtx.textBaseline = 'middle';
+    expCtx.save();
+    expCtx.beginPath(); drawBody(); expCtx.clip();
+    expCtx.fillText(n.text || '节点', x + w / 2, y + h / 2, w - 20);
+    expCtx.restore();
+
+    // 标记
+    if (n.marker && MARKERS[n.marker]) {
+      expCtx.font = '14px sans-serif';
+      expCtx.textAlign = 'right';
+      expCtx.textBaseline = 'bottom';
+      expCtx.fillText(MARKERS[n.marker], x + w + 4, y - 4);
+    }
+
+    // 折叠按钮
+    const children = nodes.filter(c => c.parentId === n.id);
+    if (children.length > 0) {
+      const bx = x + w + 4, by = y + h / 2 - 7;
+      expCtx.fillStyle = 'rgba(79, 195, 247, 0.25)';
+      expCtx.beginPath(); expCtx.roundRect(bx, by, 14, 14, 4); expCtx.fill();
+      expCtx.fillStyle = '#fff'; expCtx.font = '11px sans-serif';
+      expCtx.textAlign = 'center'; expCtx.textBaseline = 'middle';
+      expCtx.fillText(n.collapsed ? '+' : '−', bx + 7, by + 7);
+    }
+
+    // 折叠提示线
+    if (n.collapsed && children.length > 0) {
+      expCtx.strokeStyle = 'rgba(255,255,255,0.15)'; expCtx.lineWidth = 1;
+      expCtx.setLineDash([2, 3]);
+      expCtx.beginPath(); expCtx.moveTo(x + w + 22, y + h / 2);
+      expCtx.lineTo(x + w + 60, y + h / 2); expCtx.stroke();
+      expCtx.setLineDash([]);
+      expCtx.fillStyle = 'rgba(255,255,255,0.2)'; expCtx.font = '10px sans-serif';
+      expCtx.textAlign = 'left'; expCtx.textBaseline = 'middle';
+      expCtx.fillText(`${children.length}个子节点`, x + w + 26, y + h / 2);
+    }
+
+    // 连接点指示器
+    expCtx.beginPath(); expCtx.arc(x + w + 10, y + h / 2, 4, 0, Math.PI * 2);
+    expCtx.fillStyle = 'rgba(79, 195, 247, 0.15)';
+    expCtx.fill();
+
+    expCtx.restore();
+
+    if (wasSelected) selectedIds.add(n.id);
+  });
+  ctx.restore();
 
   // 下载
   expCanvas.toBlob((blob) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `${(currentProject&&currentProject.name)||'思维导图'}.png`;
+    a.download = `${(currentProject && currentProject.name) || '思维导图'}.png`;
     a.click();
     URL.revokeObjectURL(a.href);
     showToast('📤 导出完成');

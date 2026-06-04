@@ -653,6 +653,7 @@ function onContextMenu(e) {
       { label: '---' },
       { label: '🔍- 缩小', action: zoomOut },
       { label: '🔍+ 放大', action: zoomIn },
+      { label: '🗑️ 清空导图', action: () => { if (confirm('清空所有节点？')) { pushUndo(); nodes = []; edges = []; selectedIds.clear(); render(); saveData(); } } },
     ];
     menu.innerHTML = buildMenuHTML(items);
     document.body.appendChild(menu);
@@ -662,7 +663,6 @@ function onContextMenu(e) {
   }
 
   // ── 右键节点 ──
-  // 如果右键点到的节点不在选中集里，选中它
   if (!selectedIds.has(hit.id)) { selectedIds.clear(); selectedIds.add(hit.id); render(); onSelectionChanged(); }
   const targetNode = hit;
 
@@ -673,31 +673,24 @@ function onContextMenu(e) {
 
   const items = [];
 
-  // 多个节点选中 → 连接功能
+  // 多选连接
   if (selectedIds.size >= 2) {
-    items.push({ label: '🔗 连接选中节点', action: connectSelectedNodes });
-    items.push({ label: '---' });
+    items.push({ label: '🔗 连接选中', action: connectSelectedNodes });
   }
 
-  items.push({ label: '✏️ 编辑文字', shortcut: 'F2', action: () => showEditor(targetNode) });
+  // 常用操作（精简）
+  items.push({ label: '✏️ 编辑', shortcut: 'F2', action: () => showEditor(targetNode) });
   items.push({ label: '👶 子节点', shortcut: 'Tab', action: addChild });
-  items.push({ label: '↔️ 同级节点', shortcut: 'Enter', action: addSibling });
-  items.push({ label: '👆 上级节点', action: addParent });
-  items.push({ label: '---' });
-  items.push({ label: targetNode.collapsed ? '▶️ 展开' : '▼ 折叠', action: () => toggleCollapse(targetNode.id) });
-  items.push({ label: '🔽 展开全部', action: expandAll });
-  items.push({ label: '---' });
+  items.push({ label: '↔️ 同级', shortcut: 'Enter', action: addSibling });
+  items.push({ label: '👆 上级', action: addParent });
   items.push({ label: '📋 复制', shortcut: 'Ctrl+C', action: copySelected });
   items.push({ label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes });
-  items.push({ label: '✂️ 剪切', shortcut: 'Ctrl+X', action: cutSelected });
-  items.push({ label: '---' });
-  items.push({ label: '🎨 颜色', children: COLORS.map(c => ({ label: '', color: c, action: () => setNodeColor(targetNode.id, c) })) });
-  items.push({ label: '🏷️ 标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}`, action: () => setMarker(targetNode.id, targetNode.marker === k ? null : k) })) });
   items.push({ label: '🗑️ 删除', shortcut: 'Del', action: deleteSelected });
   items.push({ label: '---' });
+  items.push({ label: targetNode.collapsed ? '▶️ 展开' : '▼ 折叠', action: () => toggleCollapse(targetNode.id) });
+  items.push({ label: '🎨 颜色', children: COLORS.map(c => ({ label: '', color: c, action: () => setNodeColor(targetNode.id, c) })) });
+  items.push({ label: '🏷️ 标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}`, action: () => setMarker(targetNode.id, targetNode.marker === k ? null : k) })) });
   items.push({ label: '📝 备注', action: () => showNote(targetNode) });
-  items.push({ label: '🔍 搜索', shortcut: 'Ctrl+F', action: startSearch });
-  items.push({ label: '---' });
   items.push({ label: '⊞ 自动布局', action: autoLayoutAll });
   items.push({ label: '⬆️ 适应屏幕', action: fitToScreen });
   items.push({ label: '⛶ 全屏', action: openFullscreen });
@@ -806,26 +799,23 @@ document.addEventListener('click', (e) => {
   hideContextMenu();
   // Match by label
   const actions = {
-    '✏️ 编辑文字': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
+    '✏️ 编辑': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
     '👶 子节点': addChild,
-    '↔️ 同级节点': addSibling,
-    '👆 上级节点': addParent,
+    '↔️ 同级': addSibling,
+    '👆 上级': addParent,
     '▼ 折叠': () => toggleCollapse(contextMenu.dataset.nodeId),
     '▶️ 展开': () => toggleCollapse(contextMenu.dataset.nodeId),
-    '🔽 展开全部': expandAll,
     '📋 复制': copySelected,
     '📄 粘贴': pasteNodes,
-    '✂️ 剪切': cutSelected,
     '🗑️ 删除': deleteSelected,
     '📝 备注': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showNote(n); },
-    '🔍 搜索': startSearch,
     '⊞ 自动布局': autoLayoutAll,
     '⬆️ 适应屏幕': fitToScreen,
-    '⛶ 全屏': openFullscreen,
-    '🔗 连接选中节点': connectSelectedNodes,
+    '🔗 连接选中': connectSelectedNodes,
     '➕ 新建节点': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
     '🔍- 缩小': zoomOut,
     '🔍+ 放大': zoomIn,
+    '🗑️ 清空导图': () => { if (confirm('清空所有节点？')) { if (window.pushUndo) window.pushUndo(); nodes = []; edges = []; selectedIds.clear(); if (window.render) window.render(); if (window.saveData) window.saveData(); } },
   };
   const act = actions[text];
   if (act) act();

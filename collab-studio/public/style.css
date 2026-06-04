@@ -437,7 +437,7 @@ body {
   border-radius: var(--radius);
   z-index: 10;
 }
-#mindmap-toolbar .tool-btn {
+#mindmap-toolbar .tool-btn, .tool-btn {
   padding: 4px 10px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -686,7 +686,11 @@ body {
   cursor: pointer; color: var(--text);
   transition: background 0.1s;
 }
-.mm-context-menu .mm-cm-item:hover { background: var(--surface2); }
+.mm-context-menu li:not(.mm-menu-sep), .mm-context-menu .mm-cm-item { cursor: pointer; }
+.mm-context-menu li:not(.mm-menu-sep):hover, .mm-context-menu .mm-cm-item:hover { background: var(--surface2); }
+.mm-context-menu .mm-menu-sep { cursor: default; }
+.mm-context-menu ul li { cursor: pointer; }
+.mm-context-menu ul li:hover { background: var(--surface2); }
 .mm-context-menu .mm-cm-item .mm-cm-icon { width: 20px; text-align: center; font-size: 14px; }
 .mm-context-menu .mm-cm-item .mm-cm-shortcut { margin-left: auto; color: var(--text-dim); font-size: 11px; }
 .mm-context-menu .mm-cm-sep { height: 1px; background: var(--border); margin: 4px 8px; }

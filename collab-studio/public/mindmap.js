@@ -1146,52 +1146,46 @@ document.getElementById('mm-add-child').addEventListener('click', addChild);
 document.getElementById('mm-add-sibling').addEventListener('click', addSibling);
 document.getElementById('mm-delete-node').addEventListener('click', deleteSelected);
 
-// 撤销/重做按钮
-const toolbar = document.getElementById('mindmap-toolbar');
-const undoBtn = document.createElement('button');
-undoBtn.className = 'tool-btn'; undoBtn.textContent = '↩ 撤销';
-undoBtn.title = '撤销 (Ctrl+Z)';
-undoBtn.addEventListener('click', undo);
-toolbar.insertBefore(undoBtn, toolbar.firstChild);
+// 事件绑定（按钮已在 HTML 中）
+document.getElementById('mm-undo').addEventListener('click', undo);
+document.getElementById('mm-redo').addEventListener('click', redo);
+document.getElementById('mm-collapse-toggle').addEventListener('click', () => {
+  const n = getSelectedNode(); if (n) { toggleCollapse(n.id); }
+});
 
-const redoBtn = document.createElement('button');
-redoBtn.className = 'tool-btn'; redoBtn.textContent = '↪ 重做';
-redoBtn.title = '重做 (Ctrl+Shift+Z)';
-redoBtn.addEventListener('click', redo);
-toolbar.insertBefore(redoBtn, toolbar.firstChild);
-
+// 搜索按钮（动态创建）
 const searchBtn = document.createElement('button');
 searchBtn.className = 'tool-btn'; searchBtn.textContent = '🔍 搜索';
 searchBtn.title = '搜索节点 (Ctrl+F)';
 searchBtn.addEventListener('click', startSearch);
-toolbar.insertBefore(searchBtn, toolbar.firstChild);
+document.getElementById('mindmap-toolbar').appendChild(searchBtn);
 
-// 缩放按钮
+// 缩放按钮（动态创建）
 const zoomOutBtn = document.createElement('button');
 zoomOutBtn.className = 'tool-btn'; zoomOutBtn.textContent = '🔍-';
 zoomOutBtn.title = '缩小'; zoomOutBtn.addEventListener('click', () => { camera.zoom = Math.max(0.2, camera.zoom - 0.2); render(); });
-toolbar.insertBefore(zoomOutBtn, toolbar.firstChild);
+document.getElementById('mindmap-toolbar').appendChild(zoomOutBtn);
 
 const zoomInBtn = document.createElement('button');
 zoomInBtn.className = 'tool-btn'; zoomInBtn.textContent = '🔍+';
 zoomInBtn.title = '放大'; zoomInBtn.addEventListener('click', () => { camera.zoom = Math.min(3, camera.zoom + 0.2); render(); });
-toolbar.insertBefore(zoomInBtn, toolbar.firstChild);
+document.getElementById('mindmap-toolbar').insertBefore(zoomInBtn, document.getElementById('mindmap-toolbar').firstChild);
 
 const fitBtn = document.createElement('button');
 fitBtn.className = 'tool-btn'; fitBtn.textContent = '⊞ 适应';
 fitBtn.title = '适应屏幕'; fitBtn.addEventListener('click', fitToScreen);
-toolbar.insertBefore(fitBtn, toolbar.firstChild);
+document.getElementById('mindmap-toolbar').appendChild(fitBtn);
 
 const fullBtn = document.createElement('button');
 fullBtn.className = 'tool-btn'; fullBtn.textContent = '⛶ 全屏';
 fullBtn.title = '全屏页面'; fullBtn.addEventListener('click', openFullscreen);
-toolbar.appendChild(fullBtn);
+document.getElementById('mindmap-toolbar').appendChild(fullBtn);
 
 const exportBtn = document.createElement('button');
 exportBtn.className = 'tool-btn'; exportBtn.textContent = '📤 导出';
 exportBtn.title = '导出为图片';
 exportBtn.addEventListener('click', exportImage);
-toolbar.appendChild(exportBtn);
+document.getElementById('mindmap-toolbar').appendChild(exportBtn);
 
 function fitToScreen() {
   const bounds = getBounds();

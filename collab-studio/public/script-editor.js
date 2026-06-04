@@ -1,76 +1,215 @@
-// ─── 剧本编辑器 ──────────────────────────────────────────
-// 挂载到 window 上供 app.js 调用
-
+// ─── 剧本编辑器 v2 — 角色管理 + 动作描写 + 拖拽 + 导出 ─
 (function() {
 
 let currentProject = null;
 
 const container = $('#script-editor');
 const scriptTitle = $('#script-title');
-const addActBtn = $('#script-add-act');
 
-// ─── 打开剧本 ────────────────────────────────────────────
-window.openScriptEditor = function(project) {
-  currentProject = project;
-  scriptTitle.textContent = `📜 ${esc(project.name)}`;
-  renderScript();
-};
+// ─── 工具 ────────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+function autoResize(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; }
+
+function getCharacters() {
+  if (!currentProject) return [];
+  const map = new Map();
+  (currentProject.data.acts || []).forEach(act =>
+    (act.scenes || []).forEach(scene =>
+      (scene.lines || []).forEach(line => {
+        if (line.type === 'dialogue' && line.character) {
+          if (!map.has(line.character)) map.set(line.character, 0);
+          map.set(line.character, map.get(line.character) + 1);
+        }
+      })
+    )
+  );
+  return [...map.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+}
+
+function lineHtml(line, ai, si, li) {
+  if (line.type === 'action') {
+    return `<div class="d-line d-action" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
+      <span class="d-drag-handle">⠿</span>
+      <textarea class="d-action-text" rows="2" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="动作/描写...">${esc(line.text || '')}</textarea>
+      <button class="d-type-btn" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换为对白">🎭</button>
+      <button class="d-del" data-ai="${ai}" data-si="${si}" data-li="${li}">×</button>
+    </div>`;
+  }
+  return `<div class="d-line d-dialogue" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
+    <span class="d-drag-handle">⠿</span>
+    <input class="d-char" value="${esc(line.character || '')}" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="角色" list="char-suggest-${ai}-${si}">
+    <datalist id="char-suggest-${ai}-${si}"></datalist>
+    <textarea class="d-text" rows="1" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="对白...">${esc(line.text || '')}</textarea>
+    <button class="d-type-btn" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换为动作">✍️</button>
+    <button class="d-del" data-ai="${ai}" data-si="${si}" data-li="${li}">×</button>
+  </div>`;
+}
 
 // ─── 渲染 ────────────────────────────────────────────────
 function renderScript() {
   if (!currentProject) return;
   const data = currentProject.data || { acts: [] };
+  if (!data.acts) data.acts = [];
+
+  // 收集角色生成建议列表
+  const chars = getCharacters();
+
   container.innerHTML = '';
 
-  if (data.acts.length === 0) {
-    // 自动创建第一幕
-    data.acts.push({ title: '第一幕', scenes: [] });
-    saveData();
+  // 角色统计（折叠式）
+  if (chars.length > 0) {
+    const charBar = document.createElement('div');
+    charBar.className = 'script-charbar';
+    charBar.innerHTML = `<span style="color:var(--text-dim);font-size:12px">🎭 角色 (${chars.length})</span>`;
+    chars.forEach(c => {
+      const tag = document.createElement('span');
+      tag.className = 'script-char-tag';
+      tag.textContent = `${c.name} ${c.count}`;
+      tag.title = `${c.name}: ${c.count} 句对白`;
+      // 点击插入新对白
+      tag.addEventListener('click', () => {
+        if (data.acts.length === 0) return;
+        const lastAct = data.acts[data.acts.length - 1];
+        if (lastAct.scenes.length === 0) lastAct.scenes.push({ location: '', time: '', lines: [] });
+        const lastScene = lastAct.scenes[lastAct.scenes.length - 1];
+        if (!lastScene.lines) lastScene.lines = [];
+        lastScene.lines.push({ type: 'dialogue', character: c.name, text: '' });
+        renderScript(); saveData();
+      });
+      charBar.appendChild(tag);
+    });
+    container.appendChild(charBar);
   }
 
   data.acts.forEach((act, ai) => {
+    if (!act.scenes) act.scenes = [];
     const sec = document.createElement('div');
     sec.className = 'act-section';
     sec.innerHTML = `
-      <div class="act-header">
+      <div class="act-header" draggable="true" data-ai="${ai}">
+        <span class="act-drag">⠿</span>
         <input class="act-title" value="${esc(act.title)}" data-ai="${ai}" placeholder="幕标题...">
-        <button class="toolbar-btn danger add-scene-btn" data-ai="${ai}" style="font-size:12px;padding:2px 8px">+ 场</button>
-        <button class="tool-btn danger del-act-btn" data-ai="${ai}" style="font-size:12px;padding:2px 8px">× 删幕</button>
+        <button class="toolbar-btn add-scene-btn" data-ai="${ai}" style="font-size:12px;padding:2px 10px">+ 场</button>
+        <button class="tool-btn danger del-act-btn" data-ai="${ai}" style="font-size:12px;padding:2px 8px">删幕</button>
+        <span class="act-arrow" data-ai="${ai}">${act._collapsed ? '▶' : '▼'}</span>
       </div>
-      <div class="scenes-list"></div>
+      <div class="scenes-list" style="${act._collapsed ? 'display:none' : ''}"></div>
     `;
-
     const scenesList = sec.querySelector('.scenes-list');
 
+    // 折叠
+    sec.querySelector('.act-arrow').addEventListener('click', () => {
+      act._collapsed = !act._collapsed;
+      renderScript(); saveData();
+    });
+
+    // 拖拽排序幕
+    const actHeader = sec.querySelector('.act-header');
+    actHeader.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', `act:${ai}`);
+      actHeader.classList.add('dragging');
+    });
+    actHeader.addEventListener('dragend', () => actHeader.classList.remove('dragging'));
+    actHeader.addEventListener('dragover', e => {
+      e.preventDefault();
+      const dt = e.dataTransfer.getData('text/plain');
+      if (dt.startsWith('act:')) actHeader.classList.add('drag-over');
+    });
+    actHeader.addEventListener('dragleave', () => actHeader.classList.remove('drag-over'));
+    actHeader.addEventListener('drop', e => {
+      e.preventDefault(); actHeader.classList.remove('drag-over');
+      const dt = e.dataTransfer.getData('text/plain');
+      if (!dt.startsWith('act:')) return;
+      const fromAi = parseInt(dt.split(':')[1]);
+      if (fromAi === ai) return;
+      const item = data.acts.splice(fromAi, 1)[0];
+      data.acts.splice(ai > fromAi ? ai - 1 : ai, 0, item);
+      renderScript(); saveData();
+    });
+
     act.scenes.forEach((scene, si) => {
+      if (!scene.lines) scene.lines = [];
       const sc = document.createElement('div');
       sc.className = 'scene-card';
+      sc.draggable = true;
       sc.innerHTML = `
-        <div class="scene-header">
-          <span style="color:var(--text-dim);font-size:12px">场 ${si + 1}</span>
+        <div class="scene-header" data-ai="${ai}" data-si="${si}">
+          <span class="scene-drag">⠿</span>
+          <span style="color:var(--text-dim);font-size:11px;min-width:28px">${si+1}</span>
           <input class="scene-location" value="${esc(scene.location || '')}" data-ai="${ai}" data-si="${si}" placeholder="场景地点...">
           <input class="scene-time" value="${esc(scene.time || '')}" data-ai="${ai}" data-si="${si}" placeholder="时间...">
-          <button class="tool-btn danger del-scene-btn" data-ai="${ai}" data-si="${si}" style="font-size:12px;padding:2px 6px">×</button>
-          <button class="tool-btn add-dialogue-btn" data-ai="${ai}" data-si="${si}" style="font-size:12px;padding:2px 6px">+ 对白</button>
+          <button class="tool-btn add-action-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">+✍️</button>
+          <button class="tool-btn add-dialogue-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">+🎭</button>
+          <button class="tool-btn danger del-scene-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">×</button>
         </div>
-        <div class="dialogues-list"></div>
+        <div class="scene-lines"></div>
       `;
 
-      const dList = sc.querySelector('.dialogues-list');
+      // 场景拖拽
+      sc.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', `scene:${ai}:${si}`);
+        sc.classList.add('dragging');
+      });
+      sc.addEventListener('dragend', () => sc.classList.remove('dragging'));
+      sc.addEventListener('dragover', e => {
+        e.preventDefault();
+        const dt = e.dataTransfer.getData('text/plain');
+        if (dt.startsWith('scene:') || dt.startsWith('line:')) sc.classList.add('drag-over');
+      });
+      sc.addEventListener('dragleave', () => sc.classList.remove('drag-over'));
+      sc.addEventListener('drop', e => {
+        e.preventDefault(); sc.classList.remove('drag-over');
+        const dt = e.dataTransfer.getData('text/plain');
+        if (dt.startsWith('scene:')) {
+          const [_, fromAi, fromSi] = dt.split(':').map(Number);
+          if (fromAi === ai && fromSi === si) return;
+          const item = data.acts[fromAi].scenes.splice(fromSi, 1)[0];
+          const insertIdx = fromAi === ai && fromSi < si ? si - 1 : si;
+          data.acts[ai].scenes.splice(insertIdx, 0, item);
+          renderScript(); saveData();
+        }
+      });
 
-      (scene.dialogues || []).forEach((dlg, di) => {
-        const d = document.createElement('div');
-        d.className = 'dialogue';
-        d.innerHTML = `
-          <input class="dialogue-char" value="${esc(dlg.character || '')}" data-ai="${ai}" data-si="${si}" data-di="${di}" placeholder="角色">
-          <textarea class="dialogue-text" rows="1" data-ai="${ai}" data-si="${si}" data-di="${di}" placeholder="对白...">${esc(dlg.text || '')}</textarea>
-          <button class="dialogue-del" data-ai="${ai}" data-si="${si}" data-di="${di}">×</button>
-        `;
-        dList.appendChild(d);
+      const linesDiv = sc.querySelector('.scene-lines');
 
-        // 自动调整 textarea 高度
-        const ta = d.querySelector('.dialogue-text');
-        autoResize(ta);
+      scene.lines.forEach((line, li) => {
+        const div = document.createElement('div');
+        div.innerHTML = lineHtml(line, ai, si, li);
+        const lineEl = div.firstElementChild;
+
+        // 拖拽行
+        lineEl.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', `line:${ai}:${si}:${li}`);
+          lineEl.classList.add('dragging');
+        });
+        lineEl.addEventListener('dragend', () => lineEl.classList.remove('dragging'));
+        lineEl.addEventListener('dragover', e => {
+          e.preventDefault();
+          const dt = e.dataTransfer.getData('text/plain');
+          if (dt.startsWith('line:')) lineEl.classList.add('drag-over');
+        });
+        lineEl.addEventListener('dragleave', () => lineEl.classList.remove('drag-over'));
+        lineEl.addEventListener('drop', e => {
+          e.preventDefault(); lineEl.classList.remove('drag-over');
+          const dt = e.dataTransfer.getData('text/plain');
+          if (!dt.startsWith('line:')) return;
+          const [_, fromAi, fromSi, fromLi] = dt.split(':').map(Number);
+          if (fromAi === ai && fromSi === si && fromLi === li) return;
+          const fromScene = currentProject.data.acts[fromAi].scenes[fromSi];
+          if (!fromScene) return;
+          const item = fromScene.lines.splice(fromLi, 1)[0];
+          if (fromAi === ai && fromSi === si && fromLi < li) {
+            scene.lines.splice(li - 1, 0, item);
+          } else {
+            scene.lines.splice(li, 0, item);
+          }
+          renderScript(); saveData();
+        });
+
+        linesDiv.appendChild(div.firstElementChild);
       });
 
       scenesList.appendChild(sc);
@@ -79,47 +218,16 @@ function renderScript() {
     container.appendChild(sec);
   });
 
-  // ── 绑定事件 ──
-  bindScriptEvents();
+  // 如果没有幕，显示占位
+  if (data.acts.length === 0) {
+    container.innerHTML = '<div class="editor-placeholder">点击顶部「+ 幕」开始创作</div>';
+  }
+
+  bindEvents();
 }
 
-// ─── 输入框锁机制 ────────────────────────────────────────
-function addLockToInput(el, type) {
-  const ai = el.dataset.ai, si = el.dataset.si, di = el.dataset.di;
-  const lockId = `${ai}_${si}_${di}`;
-
-  el.addEventListener('focus', () => {
-    if (isLocked(type, lockId)) {
-      el.blur();
-      const user = getLockUser(type, lockId);
-      alert(`🔒 ${user} 正在编辑此项`);
-      return;
-    }
-    acquireLock(type, lockId);
-  });
-
-  el.addEventListener('blur', () => {
-    releaseLock(type, lockId);
-  });
-
-  // 锁状态更新时检查
-  const checkLock = () => {
-    if (isLocked(type, lockId) && document.activeElement === el) {
-      const user = getLockUser(type, lockId);
-      if (user && user !== myName) {
-        el.blur();
-        alert(`🔒 ${user} 正在编辑此项`);
-      }
-    }
-  };
-
-  window.addEventListener('locks-changed', checkLock);
-
-  // 清理事件（每次重新渲染时）
-  el._lockCleanup = () => window.removeEventListener('locks-changed', checkLock);
-}
-
-function bindScriptEvents() {
+// ─── 事件绑定 ────────────────────────────────────────────
+function bindEvents() {
   // 幕标题
   container.querySelectorAll('.act-title').forEach(inp => {
     inp.addEventListener('change', () => {
@@ -137,144 +245,192 @@ function bindScriptEvents() {
       const ai = parseInt(btn.dataset.ai);
       const act = currentProject.data.acts[ai];
       if (act) {
-        act.scenes.push({ location: '', time: '', dialogues: [] });
-        renderScript();
-        saveData();
+        act.scenes.push({ location: '', time: '', lines: [] });
+        renderScript(); saveData();
       }
     });
   });
 
-  // 删除幕
+  // 删幕
   container.querySelectorAll('.del-act-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const ai = parseInt(btn.dataset.ai);
       if (confirm('删除此幕？')) {
         currentProject.data.acts.splice(ai, 1);
-        renderScript();
-        saveData();
+        renderScript(); saveData();
       }
     });
   });
 
-  // 场景地点
+  // 场景地点/时间
   container.querySelectorAll('.scene-location').forEach(inp => {
     inp.addEventListener('change', () => {
-      updateSceneField(inp, 'location');
+      const ai = parseInt(inp.dataset.ai), si = parseInt(inp.dataset.si);
+      const sc = currentProject.data.acts[ai]?.scenes[si];
+      if (sc) { sc.location = inp.value; saveData(); }
     });
   });
-
-  // 场景时间
   container.querySelectorAll('.scene-time').forEach(inp => {
     inp.addEventListener('change', () => {
-      updateSceneField(inp, 'time');
+      const ai = parseInt(inp.dataset.ai), si = parseInt(inp.dataset.si);
+      const sc = currentProject.data.acts[ai]?.scenes[si];
+      if (sc) { sc.time = inp.value; saveData(); }
     });
   });
 
-  // 删除场
+  // 删场
   container.querySelectorAll('.del-scene-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ai = parseInt(btn.dataset.ai);
-      const si = parseInt(btn.dataset.si);
-      const act = currentProject.data.acts[ai];
-      if (act && confirm('删除此场？')) {
-        act.scenes.splice(si, 1);
-        renderScript();
-        saveData();
+      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si);
+      if (confirm('删除此场？')) {
+        currentProject.data.acts[ai].scenes.splice(si, 1);
+        renderScript(); saveData();
       }
     });
   });
 
-  // 添加对白
-  container.querySelectorAll('.add-dialogue-btn').forEach(btn => {
+  // +动作描写
+  container.querySelectorAll('.add-action-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ai = parseInt(btn.dataset.ai);
-      const si = parseInt(btn.dataset.si);
+      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si);
       const scene = currentProject.data.acts[ai]?.scenes[si];
       if (scene) {
-        if (!scene.dialogues) scene.dialogues = [];
-        scene.dialogues.push({ character: '', text: '' });
-        renderScript();
-        saveData();
+        if (!scene.lines) scene.lines = [];
+        scene.lines.push({ type: 'action', text: '' });
+        renderScript(); saveData();
+      }
+    });
+  });
+
+  // +对白
+  container.querySelectorAll('.add-dialogue-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si);
+      const scene = currentProject.data.acts[ai]?.scenes[si];
+      if (scene) {
+        if (!scene.lines) scene.lines = [];
+        scene.lines.push({ type: 'dialogue', character: '', text: '' });
+        renderScript(); saveData();
       }
     });
   });
 
   // 角色名
-  container.querySelectorAll('.dialogue-char').forEach(inp => {
-    addLockToInput(inp, 'script-char');
+  container.querySelectorAll('.d-char').forEach(inp => {
+    // 自动补全建议
+    const ai = parseInt(inp.dataset.ai), si = parseInt(inp.dataset.si);
+    const datalist = document.getElementById(`char-suggest-${ai}-${si}`);
+    if (datalist) {
+      const chars = getCharacters();
+      datalist.innerHTML = chars.map(c => `<option value="${esc(c.name)}">`).join('');
+    }
     inp.addEventListener('change', () => {
-      updateDialogueField(inp, 'character');
+      const ai = parseInt(inp.dataset.ai), si = parseInt(inp.dataset.si), li = parseInt(inp.dataset.li);
+      const line = currentProject.data.acts[ai]?.scenes[si]?.lines[li];
+      if (line) { line.character = inp.value; saveData(); }
     });
   });
 
-  // 对白文本
-  container.querySelectorAll('.dialogue-text').forEach(ta => {
-    addLockToInput(ta, 'script-dialogue');
-    ta.addEventListener('input', () => {
-      autoResize(ta);
-    });
+  // 对白/动作文本
+  container.querySelectorAll('.d-text').forEach(ta => {
+    ta.addEventListener('input', () => autoResize(ta));
     ta.addEventListener('change', () => {
-      updateDialogueField(ta, 'text');
+      const ai = parseInt(ta.dataset.ai), si = parseInt(ta.dataset.si), li = parseInt(ta.dataset.li);
+      const line = currentProject.data.acts[ai]?.scenes[si]?.lines[li];
+      if (line) { line.text = ta.value; saveData(); }
+    });
+  });
+  container.querySelectorAll('.d-action-text').forEach(ta => {
+    ta.addEventListener('input', () => autoResize(ta));
+    ta.addEventListener('change', () => {
+      const ai = parseInt(ta.dataset.ai), si = parseInt(ta.dataset.si), li = parseInt(ta.dataset.li);
+      const line = currentProject.data.acts[ai]?.scenes[si]?.lines[li];
+      if (line) { line.text = ta.value; saveData(); }
     });
   });
 
-  // 删除对白
-  container.querySelectorAll('.dialogue-del').forEach(btn => {
+  // 切换类型（对白↔动作）
+  container.querySelectorAll('.d-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const ai = parseInt(btn.dataset.ai);
-      const si = parseInt(btn.dataset.si);
-      const di = parseInt(btn.dataset.di);
-      const scene = currentProject.data.acts[ai]?.scenes[si];
-      if (scene && scene.dialogues) {
-        scene.dialogues.splice(di, 1);
-        renderScript();
-        saveData();
+      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si), li = parseInt(btn.dataset.li);
+      const line = currentProject.data.acts[ai]?.scenes[si]?.lines[li];
+      if (line) {
+        line.type = line.type === 'dialogue' ? 'action' : 'dialogue';
+        if (line.type === 'dialogue' && !line.character) line.character = '';
+        renderScript(); saveData();
       }
     });
   });
+
+  // 删除行
+  container.querySelectorAll('.d-del').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si), li = parseInt(btn.dataset.li);
+      const scene = currentProject.data.acts[ai]?.scenes[si];
+      if (scene) { scene.lines.splice(li, 1); renderScript(); saveData(); }
+    });
+  });
 }
 
-function updateSceneField(inp, field) {
-  const ai = parseInt(inp.dataset.ai);
-  const si = parseInt(inp.dataset.si);
-  const scene = currentProject.data.acts[ai]?.scenes[si];
-  if (scene) {
-    scene[field] = inp.value;
-    saveData();
-  }
-}
-
-function updateDialogueField(inp, field) {
-  const ai = parseInt(inp.dataset.ai);
-  const si = parseInt(inp.dataset.si);
-  const di = parseInt(inp.dataset.di);
-  const dlg = currentProject.data.acts[ai]?.scenes[si]?.dialogues?.[di];
-  if (dlg) {
-    dlg[field] = inp.value;
-    saveData();
-  }
-}
-
+// ─── 保存 ────────────────────────────────────────────────
 function saveData() {
   if (!currentProject) return;
-  socket.emit('project-update', {
-    id: currentProject.id,
-    data: currentProject.data,
-  });
-  // 实时同步给对方
+  socket.emit('project-update', { id: currentProject.id, data: currentProject.data });
   socket.emit('realtime-event', {
-    module: 'script',
-    event: 'script-updated',
+    module: 'script', event: 'script-updated',
     payload: { id: currentProject.id, data: currentProject.data },
   });
 }
 
-function autoResize(ta) {
-  ta.style.height = 'auto';
-  ta.style.height = ta.scrollHeight + 2 + 'px';
+// ─── 导出 ────────────────────────────────────────────────
+function exportScript(mode) {
+  if (!currentProject) return;
+  const data = currentProject.data;
+  let text = `# ${currentProject.name}\n\n`;
+
+  (data.acts || []).forEach((act, ai) => {
+    text += `## ${act.title || `第${ai+1}幕`}\n\n`;
+    (act.scenes || []).forEach((scene, si) => {
+      const loc = scene.location || '??';
+      const time = scene.time || '??';
+      text += `### 第${si+1}场 - ${loc} - ${time}\n\n`;
+      (scene.lines || []).forEach(line => {
+        if (line.type === 'action') {
+          text += `${line.text || '(动作)'}\n\n`;
+        } else {
+          text += `**${line.character || '??'}**: ${line.text || ''}\n\n`;
+        }
+      });
+    });
+  });
+
+  if (mode === 'clipboard') {
+    navigator.clipboard.writeText(text).then(() => showToast('📋 已复制到剪贴板'));
+  } else {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${currentProject.name || '剧本'}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('📤 导出完成');
+  }
 }
 
-// 监听实时同步
+function showToast(msg) {
+  let el = document.getElementById('script-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'script-toast';
+    el.style.cssText = 'position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:#1a3a1a;color:#66bb6a;padding:8px 16px;border-radius:8px;font-size:13px;z-index:100;border:1px solid #66bb6a;box-shadow:0 2px 12px rgba(0,0,0,0.4);transition:opacity 0.3s';
+    document.getElementById('script-editor').appendChild(el);
+  }
+  el.textContent = msg; el.style.opacity = '1';
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.style.opacity = '0'; }, 2500);
+}
+
+// ─── 实时同步 ────────────────────────────────────────────
 socket.on('script-updated', (data) => {
   if (currentProject && currentProject.id === data.id) {
     currentProject.data = data.data;
@@ -282,18 +438,58 @@ socket.on('script-updated', (data) => {
   }
 });
 
-// ─── 新增幕（顶部按钮） ──────────────────────────────────
-addActBtn.addEventListener('click', () => {
+// ─── 导出API ────────────────────────────────────────────
+window.openScriptEditor = function(project) {
+  currentProject = project;
+
+  // 迁移旧数据格式 → 新格式
+  const data = project.data || {};
+  if (data.acts) {
+    data.acts.forEach(act => {
+      if (act.scenes) {
+        act.scenes.forEach(scene => {
+          // 旧格式：scene.dialogues → scene.lines
+          if (scene.dialogues && !scene.lines) {
+            scene.lines = scene.dialogues.map(d => ({
+              type: 'dialogue',
+              character: d.character || '',
+              text: d.text || '',
+            }));
+            delete scene.dialogues;
+          }
+          if (!scene.lines) scene.lines = [];
+        });
+      }
+    });
+  }
+
+  scriptTitle.textContent = `📜 ${esc(project.name)}`;
+  renderScript();
+};
+
+// ─── 幕按钮 ──────────────────────────────────────────────
+document.getElementById('script-add-act').addEventListener('click', () => {
   if (!currentProject) return;
   currentProject.data.acts.push({ title: `第${currentProject.data.acts.length + 1}幕`, scenes: [] });
-  renderScript();
-  saveData();
+  renderScript(); saveData();
 });
 
-// ─── CollabStudio API 导出 ──────────────────────────────
+// ─── 导出按钮（动态创建在顶部） ────────────────────────
+const exportBtn = document.createElement('button');
+exportBtn.className = 'toolbar-btn';
+exportBtn.textContent = '📤 导出';
+exportBtn.title = '导出剧本';
+exportBtn.style.cssText = 'font-size:12px;padding:2px 10px';
+exportBtn.addEventListener('click', () => {
+  if (!currentProject) return;
+  const text = `# ${currentProject.name}\n\n`;
+  exportScript('file');
+});
+document.querySelector('#panel-script .panel-actions').appendChild(exportBtn);
+
+// ─── CollabStudio API ──────────────────────────────────
 window.registerCollabModule && window.registerCollabModule('script', {
-  name: 'script',
-  open: (project) => window.openScriptEditor(project),
+  name: 'script', open: (project) => window.openScriptEditor(project),
   save: () => saveData(),
   getData: () => currentProject ? currentProject.data : null,
   setData: (data) => { if (currentProject) { currentProject.data = data; renderScript(); } },

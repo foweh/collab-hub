@@ -119,7 +119,7 @@ const io = new SocketIOServer(server, {
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/fenjing', express.static(path.join(__dirname, '../fenjing-local/dist')));
+app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 
 // ─── UDP 发现 ────────────────────────────────────────────
 function broadcastDiscover() {}

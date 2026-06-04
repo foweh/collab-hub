@@ -845,14 +845,44 @@ function getSelectedNode() {
   return nodes.find(n => n.id === [...selectedIds][0]);
 }
 
+function findVacantSpot(baseX, baseY, w, h, excludeId) {
+  // 从 baseX, baseY 开始找空位，逐步偏移直到不与其他节点重叠
+  let attempts = 0;
+  const pad = 10;
+  while (attempts < 30) {
+    let overlap = false;
+    for (const n of nodes) {
+      if (n.id === excludeId) continue;
+      const nw = n.width || NODE_MIN_W, nh = n.height || NODE_H;
+      if (baseX < n.x + nw + pad && baseX + w + pad > n.x &&
+          baseY < n.y + nh + pad && baseY + h + pad > n.y) {
+        overlap = true;
+        break;
+      }
+    }
+    if (!overlap) return { x: baseX, y: baseY };
+    // 有重叠：尝试偏移
+    if (attempts % 2 === 0) baseX += 40;
+    else { baseX -= 40; baseY += 50; }
+    attempts++;
+  }
+  return { x: baseX, y: baseY }; // 保底
+}
+
 function addChild() {
   const parent = getSelectedNode(); if (!parent) return;
   pushUndo();
   const id = addNodeInternal(parent.id, '子节点', COLORS[(nodeCounter + 1) % COLORS.length]);
   const child = nodes.find(n => n.id === id);
-  child.x = parent.x + (parent.width || NODE_MIN_W) + LEVEL_GAP;
-  child.y = parent.y + 30;
-  autoLayout();
+  const ch = child.height || NODE_H;
+  // 计算已有子节点数量
+  const existingChildren = nodes.filter(n => n.parentId === parent.id && n.id !== id);
+  const baseX = parent.x + (parent.width || NODE_MIN_W) + LEVEL_GAP;
+  const baseY = existingChildren.length > 0
+    ? existingChildren[existingChildren.length - 1].y
+    : parent.y;
+  const spot = findVacantSpot(baseX, baseY + (existingChildren.length > 0 ? ch + VERT_GAP : 0), child.width || NODE_MIN_W, ch, id);
+  child.x = spot.x; child.y = spot.y;
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData();
   const s = worldToScreen(child.x, child.y);
@@ -864,8 +894,11 @@ function addSibling() {
   pushUndo();
   const id = addNodeInternal(ref.parentId, '同级节点', COLORS[nodeCounter % COLORS.length]);
   const sibling = nodes.find(n => n.id === id);
-  sibling.x = ref.x; sibling.y = ref.y + (ref.height || NODE_H) + VERT_GAP;
-  autoLayout();
+  const sh = sibling.height || NODE_H;
+  const existing = nodes.filter(n => n.parentId === ref.parentId);
+  const lastY = existing.reduce((max, n) => Math.max(max, n.y + (n.height || NODE_H)), 0);
+  const spot = findVacantSpot(ref.x, lastY + VERT_GAP, sibling.width || NODE_MIN_W, sh, id);
+  sibling.x = spot.x; sibling.y = spot.y;
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData(); showEditor(sibling);
 }
@@ -884,7 +917,6 @@ function addParent() {
   }
   edges.push({ from: id, to: child.id });
   parent.x = child.x - 120; parent.y = child.y;
-  autoLayout();
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData();
 }

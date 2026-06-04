@@ -446,7 +446,10 @@ body {
 }
 .scene-location:focus, .scene-time:focus { border-color: var(--accent); color: var(--text); background: var(--surface2); }
 .scene-lines { padding-left: 20px; }
-.d-line { display: flex; align-items: flex-start; gap: 4px; padding: 3px 4px; border-radius: 4px; transition: background 0.1s; cursor: move; }
+.d-line { display: flex; align-items: flex-start; gap: 4px; padding: 3px 4px; border-radius: 4px; transition: background 0.1s; cursor: move; border-left: 3px solid transparent; }
+.d-dialogue { border-left-color: var(--accent); }    /* 对白 — 蓝色 */
+.d-action { border-left-color: #66bb6a; }             /* 动作 — 绿色 */
+.d-env { border-left-color: #b388ff; }                /* 环境 — 紫色 */
 .d-line:hover { background: var(--surface2); }
 .d-line.dragging { opacity: 0.3; }
 .d-line.drag-over { background: rgba(79,195,247,0.1); }
@@ -462,13 +465,15 @@ body {
   font-size: 13px; padding: 4px 6px; resize: none; outline: none; font-family: inherit;
   line-height: 1.5; min-height: 28px;
 }
-.d-action-text {
+.d-type-text {
   flex: 1; background: transparent; border: none; color: var(--text-dim);
   font-size: 12px; font-style: italic; padding: 4px 6px; resize: none; outline: none;
   font-family: inherit; line-height: 1.5; min-height: 28px;
 }
-.d-type-btn { background: none; border: none; cursor: pointer; font-size: 12px; padding: 4px; opacity: 0.4; }
-.d-type-btn:hover { opacity: 1; }
+.d-type-badge { background: none; border: none; cursor: pointer; font-size: 13px; padding: 4px; opacity: 0.5; }
+.d-type-badge:hover { opacity: 1; }
+.d-action .d-type-text { color: #a8d8a8; }  /* 动作描写 — 绿色 */
+.d-env .d-type-text { color: #c8a8e8; }  /* 环境描写 — 紫色 */
 .d-del { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 2px 4px; }
 .d-del:hover { color: var(--danger); }
 

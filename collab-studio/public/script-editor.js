@@ -30,20 +30,24 @@ function getCharacters() {
 }
 
 function lineHtml(line, ai, si, li) {
-  if (line.type === 'action') {
-    return `<div class="d-line d-action" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
+  const type = line.type || 'dialogue';
+  const typeClass = `d-${type}`;
+  if (type === 'dialogue') {
+    return `<div class="d-line ${typeClass}" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
       <span class="d-drag-handle">⠿</span>
-      <textarea class="d-action-text" rows="2" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="动作/描写...">${esc(line.text || '')}</textarea>
-      <button class="d-type-btn" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换为对白">🎭</button>
+      <input class="d-char" value="${esc(line.character || '')}" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="角色" list="char-suggest-${ai}-${si}">
+      <datalist id="char-suggest-${ai}-${si}"></datalist>
+      <textarea class="d-text" rows="1" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="对白...">${esc(line.text || '')}</textarea>
+      <span class="d-type-badge" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换类型">🎭</span>
       <button class="d-del" data-ai="${ai}" data-si="${si}" data-li="${li}">×</button>
     </div>`;
   }
-  return `<div class="d-line d-dialogue" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
+  const badge = type === 'action' ? '✍️' : '🌄';
+  const placeholder = type === 'action' ? '动作...' : '环境描写...';
+  return `<div class="d-line ${typeClass}" draggable="true" data-ai="${ai}" data-si="${si}" data-li="${li}">
     <span class="d-drag-handle">⠿</span>
-    <input class="d-char" value="${esc(line.character || '')}" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="角色" list="char-suggest-${ai}-${si}">
-    <datalist id="char-suggest-${ai}-${si}"></datalist>
-    <textarea class="d-text" rows="1" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="对白...">${esc(line.text || '')}</textarea>
-    <button class="d-type-btn" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换为动作">✍️</button>
+    <textarea class="d-type-text" rows="2" data-ai="${ai}" data-si="${si}" data-li="${li}" placeholder="${placeholder}">${esc(line.text || '')}</textarea>
+    <span class="d-type-badge" data-ai="${ai}" data-si="${si}" data-li="${li}" title="切换类型">${badge}</span>
     <button class="d-del" data-ai="${ai}" data-si="${si}" data-li="${li}">×</button>
   </div>`;
 }
@@ -141,8 +145,9 @@ function renderScript() {
           <span style="color:var(--text-dim);font-size:11px;min-width:28px">${si+1}</span>
           <input class="scene-location" value="${esc(scene.location || '')}" data-ai="${ai}" data-si="${si}" placeholder="场景地点...">
           <input class="scene-time" value="${esc(scene.time || '')}" data-ai="${ai}" data-si="${si}" placeholder="时间...">
-          <button class="tool-btn add-action-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">+✍️</button>
-          <button class="tool-btn add-dialogue-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">+🎭</button>
+          <button class="tool-btn add-action-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">✍️动</button>
+          <button class="tool-btn add-action-btn" data-ai="${ai}" data-si="${si}" data-type="env" style="font-size:11px;padding:1px 6px">🌄环</button>
+          <button class="tool-btn add-dialogue-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">🎭对白</button>
           <button class="tool-btn danger del-scene-btn" data-ai="${ai}" data-si="${si}" style="font-size:11px;padding:1px 6px">×</button>
         </div>
         <div class="scene-lines"></div>
@@ -289,14 +294,15 @@ function bindEvents() {
     });
   });
 
-  // +动作描写
+  // +动作/环境描写
   container.querySelectorAll('.add-action-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si);
       const scene = currentProject.data.acts[ai]?.scenes[si];
       if (scene) {
         if (!scene.lines) scene.lines = [];
-        scene.lines.push({ type: 'action', text: '' });
+        const type = btn.dataset.type || 'action';
+        scene.lines.push({ type, text: '' });
         renderScript(); saveData();
       }
     });
@@ -340,7 +346,7 @@ function bindEvents() {
       if (line) { line.text = ta.value; saveData(); }
     });
   });
-  container.querySelectorAll('.d-action-text').forEach(ta => {
+  container.querySelectorAll('.d-type-text').forEach(ta => {
     ta.addEventListener('input', () => autoResize(ta));
     ta.addEventListener('change', () => {
       const ai = parseInt(ta.dataset.ai), si = parseInt(ta.dataset.si), li = parseInt(ta.dataset.li);
@@ -349,13 +355,15 @@ function bindEvents() {
     });
   });
 
-  // 切换类型（对白↔动作）
-  container.querySelectorAll('.d-type-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si), li = parseInt(btn.dataset.li);
+  // 切换类型（对白 → 动作 → 环境描写 → 对白）
+  container.querySelectorAll('.d-type-badge').forEach(badge => {
+    badge.addEventListener('click', () => {
+      const ai = parseInt(badge.dataset.ai), si = parseInt(badge.dataset.si), li = parseInt(badge.dataset.li);
       const line = currentProject.data.acts[ai]?.scenes[si]?.lines[li];
       if (line) {
-        line.type = line.type === 'dialogue' ? 'action' : 'dialogue';
+        const types = ['dialogue', 'action', 'env'];
+        const idx = types.indexOf(line.type || 'dialogue');
+        line.type = types[(idx + 1) % types.length];
         if (line.type === 'dialogue' && !line.character) line.character = '';
         renderScript(); saveData();
       }
@@ -396,7 +404,9 @@ function exportScript(mode) {
       text += `### 第${si+1}场 - ${loc} - ${time}\n\n`;
       (scene.lines || []).forEach(line => {
         if (line.type === 'action') {
-          text += `${line.text || '(动作)'}\n\n`;
+          text += `*[动作] ${line.text || ''}*\n\n`;
+        } else if (line.type === 'env') {
+          text += `*[环境] ${line.text || ''}*\n\n`;
         } else {
           text += `**${line.character || '??'}**: ${line.text || ''}\n\n`;
         }

@@ -350,6 +350,13 @@ function handleBridgeMessage(fromId, msg) {
       const p = peers.get(fromId);
       if (p) { p.name = msg.name; broadcastPeers(); }
       break;
+    case 'fenjing-sync':
+      // 来自 peer 的分镜状态同步 → 转发给本地所有 fenjing 客户端
+      if (msg.state) {
+        fenjingState = msg.state;
+        fenjingNsp.emit('fenjing:state-sync', fenjingState);
+      }
+      break;
   }
 }
 
@@ -388,7 +395,45 @@ function broadcastPeers() {
   broadcastToBrowsers({ type: 'peers-update', peers: list });
 }
 
-// ─── 分镜工具: 托管 fenjing-local 构建产物 ─────────────────
+// ─── 分镜工具 namespace ────────────────────────────────────
+const fenjingNsp = io.of('/fenjing');
+let fenjingState = {
+  projectName: '未命名项目',
+  scenes: [],
+  shots: [],
+};
+
+fenjingNsp.on('connection', (socket) => {
+  console.log(`[fenjing连接] ${socket.id}`);
+
+  // 新客户端 → 发送全量状态
+  socket.emit('fenjing:state-sync', fenjingState);
+
+  // 全量 shots 更新（增删改都在一次提交中）
+  socket.on('fenjing:shots-update', (shots) => {
+    fenjingState.shots = shots;
+    socket.broadcast.emit('fenjing:shots-update', shots);
+    // 桥接到其他 collab-studio 节点
+    broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
+  });
+
+  // 全量 scenes 更新
+  socket.on('fenjing:scenes-update', (scenes) => {
+    fenjingState.scenes = scenes;
+    socket.broadcast.emit('fenjing:scenes-update', scenes);
+    broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
+  });
+
+  // 项目名更新
+  socket.on('fenjing:project-rename', (name) => {
+    fenjingState.projectName = name;
+    socket.broadcast.emit('fenjing:project-rename', name);
+    broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
+  });
+});
+
+// 桥接：收到 peer 的 fenjing 同步 → 转发给本地 fenjing 客户端
+// 在 handleBridgeMessage 中处理
 
 function getDefaultData(type) {
   switch (type) {

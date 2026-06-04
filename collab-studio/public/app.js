@@ -290,9 +290,9 @@ document.getElementById('nav-storyboard').addEventListener('click', () => {
 
 function initUI() {
   if (projects.length === 0) {
-    createDefaultProject('script', '📜 未命名剧本');
+    createDefaultProject('script', '未命名剧本');
     createDefaultProject('mindmap', '未命名导图');
-    createDefaultProject('story', '📖 未命名故事');
+    createDefaultProject('story', '未命名故事');
   }
   renderProjects();
   updatePeersUI();
@@ -340,7 +340,7 @@ function renderProjects() {
     card.innerHTML = `
       <span class="p-type">${icons[p.type] || '📄'}</span>
       <button class="p-del" data-id="${p.id}">×</button>
-      <div class="p-name">${esc(p.name)}</div>
+      <div class="p-name">${esc(cleanProjectName(p.name))}</div>
       <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}</div>
       <div class="p-owner">${esc(p.owner || '我')}</div>
     `;
@@ -513,6 +513,9 @@ receiveOk.addEventListener('click', () => {
 });
 
 // ─── 工具 ────────────────────────────────────────────────
+function cleanProjectName(name) {
+  return (name || '').replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2702}-\u{27B0}\s]+/u, '');
+}
 function esc(s) {
   const d = document.createElement('div');
   d.textContent = s;

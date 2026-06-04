@@ -108,8 +108,10 @@ window.openMindMapEditor = function(project) {
   edges = JSON.parse(JSON.stringify(data.edges || []));
   nodeCounter = nodes.reduce((m, n) => Math.max(m, parseInt(n.id.replace('n','')) || 0), 0);
   undoStack = []; redoStack = [];
-  if (nodes.length === 0) addNodeInternal(null, '中心主题', COLORS[0]);
-  autoLayout();
+  if (nodes.length === 0) {
+    addNodeInternal(null, '中心主题', COLORS[0]);
+    autoLayout();
+  }
   const root = nodes.find(n => !n.parentId);
   if (root) { camera.x = canvas.width / 2 - root.x; camera.y = canvas.height / 3 - root.y; camera.zoom = 1; }
   selectedIds.clear();

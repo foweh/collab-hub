@@ -830,7 +830,7 @@ function getSelectedNode() {
 function addChild() {
   const parent = getSelectedNode(); if (!parent) return;
   pushUndo();
-  const id = addNodeInternal(parent.id, '子节点', COLORS[++nodeCounter % COLORS.length]);
+  const id = addNodeInternal(parent.id, '子节点', COLORS[(nodeCounter + 1) % COLORS.length]);
   const child = nodes.find(n => n.id === id);
   child.x = parent.x + (parent.width || NODE_MIN_W) + LEVEL_GAP;
   child.y = parent.y + 30;

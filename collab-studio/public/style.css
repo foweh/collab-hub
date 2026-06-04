@@ -670,6 +670,113 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+/* ─── 思维导图右键菜单 ─── */
+.mm-context-menu {
+  position: fixed; z-index: 9999;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.mm-context-menu .mm-cm-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px; font-size: 13px;
+  cursor: pointer; color: var(--text);
+  transition: background 0.1s;
+}
+.mm-context-menu .mm-cm-item:hover { background: var(--surface2); }
+.mm-context-menu .mm-cm-item .mm-cm-icon { width: 20px; text-align: center; font-size: 14px; }
+.mm-context-menu .mm-cm-item .mm-cm-shortcut { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+.mm-context-menu .mm-cm-sep { height: 1px; background: var(--border); margin: 4px 8px; }
+.mm-context-menu .mm-cm-sub {
+  position: relative;
+}
+.mm-context-menu .mm-cm-sub-menu {
+  display: none;
+  position: absolute; left: 100%; top: -4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.mm-context-menu .mm-cm-sub:hover > .mm-cm-sub-menu { display: block; }
+
+/* ─── 思维导图备注面板 ─── */
+#mm-note-panel {
+  position: absolute; right: 12px; top: 60px; bottom: 60px; width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: none;
+  flex-direction: column;
+  z-index: 50;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+#mm-note-panel.open { display: flex; }
+#mm-note-panel h4 { font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+#mm-note-panel textarea {
+  flex: 1; resize: none;
+  padding: 8px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface2);
+  color: var(--text); font-size: 13px;
+  font-family: inherit; outline: none; min-height: 80px;
+}
+#mm-note-panel textarea:focus { border-color: var(--accent); }
+#mm-note-panel .mm-note-close {
+  position: absolute; top: 8px; right: 10px;
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 16px;
+}
+
+/* ─── 思维导图标记 ─── */
+.mm-marker-picker {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+  padding: 6px;
+}
+.mm-marker-picker .mm-marker-opt {
+  width: 28px; height: 28px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 16px;
+  border: 1px solid transparent;
+}
+.mm-marker-picker .mm-marker-opt:hover { border-color: var(--accent); background: var(--surface2); }
+.mm-marker-picker .mm-marker-opt.active { border-color: var(--accent); background: rgba(79,195,247,0.15); }
+
+.mm-priority-picker {
+  display: flex; gap: 4px; padding: 6px;
+}
+.mm-priority-picker .mm-pri-opt {
+  width: 28px; height: 28px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 14px; font-weight: 600;
+  border: 1px solid transparent;
+}
+.mm-priority-picker .mm-pri-opt:hover { border-color: var(--accent); }
+.mm-priority-picker .mm-pri-opt.active { border-color: var(--accent); background: rgba(79,195,247,0.15); }
+
+/* ─── 思维导图搜索 ─── */
+#mm-search-box {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 60;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: none; align-items: center; gap: 6px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+#mm-search-box.open { display: flex; }
+#mm-search-box input {
+  border: none; background: transparent; color: var(--text);
+  font-size: 13px; outline: none; width: 160px;
+}
+#mm-search-box .mm-search-count { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+
 /* ─── 响应式 ─── */
 @media (max-width: 900px) {
   #right-sidebar { width: 180px; }

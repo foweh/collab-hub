@@ -7,6 +7,36 @@ const { v4: uuid } = require('uuid');
 const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
+const fs = require('fs');
+
+// ─── 文件持久化 ─────────────────────────────────────────
+const DATA_DIR = path.join(__dirname, 'data');
+const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function loadProjects() {
+  try {
+    if (fs.existsSync(PROJECTS_FILE)) {
+      const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) { console.error('[持久化] 读取失败', e.message); }
+  return [];
+}
+
+function saveProjects() {
+  try {
+    const data = projects.map(p => ({
+      id: p.id, type: p.type, name: p.name,
+      data: p.data,
+      createdAt: p.createdAt, updatedAt: p.updatedAt,
+      owner: p.owner,
+    }));
+    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) { console.error('[持久化] 写入失败', e.message); }
+}
 
 // ─── 配置 & CLI ─────────────────────────────────────────
 let HTTP_PORT = parseInt(process.env.PORT) || 3000;
@@ -25,7 +55,7 @@ let SERVER_NAME = os.hostname();
 
 // ─── 存储 ────────────────────────────────────────────────
 const peers = new Map(); // serverId → { socket, name, ip, port, connected, note }
-let projects = [];
+let projects = loadProjects();
 
 // ─── 扫描状态 ────────────────────────────────────────────
 let scanState = 'idle';
@@ -258,6 +288,7 @@ io.on('connection', (socket) => {
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
   });
   socket.on('project-update', (data) => {
     const p = projects.find(x => x.id === data.id); if (!p) return;
@@ -267,12 +298,14 @@ io.on('connection', (socket) => {
     socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
     addLog(socket.id, socket.userName || SERVER_NAME, 'updated', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
   });
   socket.on('project-delete', (id) => {
     const p = projects.find(x => x.id === id);
     projects = projects.filter(x => x.id !== id); socket.emit('project-deleted', id);
     if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
   });
   socket.on('project-transfer', ({ ids, targetServerId }) => {
     const toSend = projects.filter(p => ids.includes(p.id)); if (!toSend.length) return;

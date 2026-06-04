@@ -123,11 +123,16 @@
           <div id="mindmap-editor" class="module-body">
             <canvas id="mindmap-canvas"></canvas>
             <div id="mindmap-toolbar">
+              <button class="tool-btn" id="mm-undo" title="撤销 Ctrl+Z">↩ 撤销</button>
+              <button class="tool-btn" id="mm-redo" title="重做 Ctrl+Shift+Z">↪ 重做</button>
+              <span style="color:var(--border);width:1px;background:var(--border);margin:0 4px;display:inline-block;height:24px"></span>
               <button class="tool-btn" id="mm-add-root">➕ 根节点</button>
               <button class="tool-btn" id="mm-add-child">👶 子节点</button>
               <button class="tool-btn" id="mm-add-sibling">↔️ 同级节点</button>
+              <button class="tool-btn" id="mm-collapse-toggle" title="折叠/展开子树">📂 折叠</button>
               <button class="tool-btn danger" id="mm-delete-node">🗑️ 删除选中</button>
               <input type="color" id="mm-color" value="#4fc3f7" title="节点颜色">
+              <span style="color:var(--text-dim);font-size:12px;margin-left:auto" id="mm-node-count"></span>
             </div>
           </div>
         </section>

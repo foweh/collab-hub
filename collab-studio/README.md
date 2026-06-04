@@ -29,7 +29,7 @@
 ### 1. Install
 
 ```bash
-git clone https://github.com/yourname/collab-studio.git
+git clone https://github.com/<你的用户名>/collab-studio.git
 cd collab-studio
 npm install
 ```

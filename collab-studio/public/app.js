@@ -150,11 +150,16 @@ function getScanRemaining() {
 }
 
 // ─── 入场 ────────────────────────────────────────────────
+// 自动填入上次保存的名字
+const savedName = localStorage.getItem('collab-user-name');
+if (savedName) { nameInput.value = savedName; }
+
 joinBtn.addEventListener('click', join);
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 
 function join() {
   myName = nameInput.value.trim() || `用户_${Math.random().toString(36).slice(2, 5)}`;
+  localStorage.setItem('collab-user-name', myName);
   joinOverlay.style.display = 'none';
   app.style.display = 'flex';
   socket.emit('join', myName);

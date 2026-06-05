@@ -221,6 +221,40 @@
             <div class="status-none">⏳ 等待其他人加入…</div>
           </div>
         </section>
+
+        <!-- 联系管理员（普通用户专用） -->
+        <section id="contact-admin-section">
+          <h3>📨 联系管理员</h3>
+          <div style="display:flex;gap:4px">
+            <input type="text" id="contact-admin-input" placeholder="输入消息..." maxlength="200" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px;outline:none">
+            <button id="contact-admin-btn" style="padding:5px 10px;border:none;border-radius:6px;background:var(--accent);color:#000;font-weight:600;cursor:pointer;font-size:12px;white-space:nowrap">发送</button>
+          </div>
+        </section>
+
+        <!-- 管理面板（仅管理员可见） -->
+        <section id="admin-panel" style="display:none">
+          <h3>👑 管理面板
+            <button id="admin-refresh-btn" style="float:right;padding:1px 6px;font-size:11px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);cursor:pointer">刷新</button>
+          </h3>
+          <!-- 管理员收件箱 -->
+          <div id="admin-inbox" style="margin-bottom:8px">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px">📥 用户消息</div>
+            <div id="admin-msgs" style="max-height:100px;overflow-y:auto;background:var(--surface2);border-radius:4px;padding:4px 6px;font-size:12px"></div>
+          </div>
+          <!-- 用户管理 -->
+          <div style="max-height:160px;overflow-y:auto;font-size:12px">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="color:var(--text-dim);font-size:11px">
+                <th style="text-align:left;padding:2px 4px">用户</th>
+                <th style="text-align:left;padding:2px 4px">状态</th>
+                <th style="text-align:left;padding:2px 4px">指纹</th>
+                <th style="text-align:left;padding:2px 4px">改密码</th>
+                <th style="text-align:left;padding:2px 4px">操作</th>
+              </tr></thead>
+              <tbody id="admin-users-tbody"></tbody>
+            </table>
+          </div>
+        </section>
       </aside>
     </div>
   </div>

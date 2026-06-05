@@ -8,10 +8,12 @@ const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // ─── 文件持久化 ─────────────────────────────────────────
 const DATA_DIR = path.join(__dirname, 'data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -36,6 +38,45 @@ function saveProjects() {
     }));
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) { console.error('[持久化] 写入失败', e.message); }
+}
+
+// ─── 用户管理（密码/指纹/拉黑）────────────────────────
+let users = {}; // name → { password, isAdmin, fingerprint, isBanned }
+try {
+  if (fs.existsSync(USERS_FILE)) {
+    users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+  }
+} catch (e) { console.error('[用户] 加载失败', e.message); }
+
+// 确保管理员账号存在
+if (!users['热合曼']) {
+  users['热合曼'] = { password: hashPwd('26275265'), isAdmin: true, fingerprint: '', isBanned: false };
+} else if (users['热合曼'].password && users['热合曼'].password.length < 20) {
+  // 迁移旧版明文密码
+  users['热合曼'].password = hashPwd(users['热合曼'].password);
+}
+
+function saveUsers() {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
+
+function hashPwd(pwd) {
+  return crypto.createHash('sha256').update(pwd || '').digest('hex').slice(0, 16);
+}
+function validatePassword(name, pwd) {
+  if (!users[name]) return false;
+  return users[name].password === hashPwd(pwd);
+}
+
+function isNameBanned(name) {
+  return users[name] && users[name].isBanned;
+}
+
+function isFingerprintBanned(fp) {
+  for (const n in users) {
+    if (users[n].fingerprint === fp && users[n].isBanned) return true;
+  }
+  return false;
 }
 
 // ─── 配置 & CLI ─────────────────────────────────────────
@@ -261,17 +302,54 @@ io.on('connection', (socket) => {
     operationLog: getRecentLogs(50),
   });
 
-  socket.on('join', (name) => {
-    SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME;
-    socket.isAdmin = false;
-    onlineUsers.set(socket.id, { name: SERVER_NAME, joinedAt: Date.now(), isAdmin: false });
+  // 验证用户身份并拉黑检查
+  socket.on('join', ({ name, password, fingerprint }) => {
+    const userName = (name || '').trim();
+    if (!userName) return;
+    
+    // 拉黑检查（指纹）
+    if (fingerprint && isFingerprintBanned(fingerprint)) {
+      socket.emit('login-error', '你的设备已被拉黑，无法进入');
+      socket.disconnect();
+      return;
+    }
+    // 拉黑检查（名字）
+    if (isNameBanned(userName)) {
+      socket.emit('login-error', '该用户已被拉黑');
+      socket.disconnect();
+      return;
+    }
+    
+    SERVER_NAME = userName; socket.userName = userName;
+    
+    // 检查管理员身份
+    let isAdmin = false;
+    if (users[userName] && users[userName].isAdmin) {
+      if (validatePassword(userName, password || '')) {
+        isAdmin = true;
+      } else {
+        socket.emit('login-error', '管理员密码错误');
+        return;
+      }
+    } else {
+      // 普通用户，自动注册
+      if (!users[userName]) {
+        users[userName] = { password: hashPwd(password || ''), isAdmin: false, fingerprint: '', isBanned: false };
+      }
+    }
+    // 更新指纹
+    if (fingerprint) {
+      users[userName].fingerprint = fingerprint;
+    }
+    saveUsers();
+    
+    socket.isAdmin = isAdmin;
+    onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin, fingerprint: fingerprint || '' });
     broadcastOnlineUsers();
-    addLog(socket.id, SERVER_NAME, 'joined', 'system', '');
-  });
-  socket.on('set-admin', (admin) => {
-    socket.isAdmin = admin;
-    const u = onlineUsers.get(socket.id);
-    if (u) { u.isAdmin = admin; broadcastOnlineUsers(); }
+    addLog(socket.id, userName, 'joined', 'system', '');
+    
+    // 告知客户端身份
+    socket.emit('login-success', { userName, isAdmin });
   });
   socket.on('set-server-name', (name) => {
     SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; broadcastDiscover();
@@ -340,6 +418,87 @@ io.on('connection', (socket) => {
     const msg = { type: 'realtime', _msgId: uuid(), origin: SERVER_ID, event: data.event, data: data.payload };
     socket.broadcast.emit(data.event, data.payload);
     broadcastToPeers(msg, null);
+  });
+
+  // ── 管理员操作 ──
+  socket.on('admin-list-users', () => {
+    if (!socket.isAdmin) return;
+    const list = Object.entries(users).map(([name, u]) => ({
+      name,
+      isAdmin: u.isAdmin,
+      isBanned: u.isBanned,
+      fingerprint: u.fingerprint || '',
+    }));
+    socket.emit('admin-users-list', list);
+  });
+  
+  socket.on('admin-change-password', ({ targetName, newPassword }) => {
+    if (!socket.isAdmin) return;
+    if (!users[targetName] || users[targetName].isAdmin) return; // 不能改管理员密码
+    users[targetName].password = hashPwd(newPassword || '');
+    saveUsers();
+    io.emit('online-users', []); // 刷新客户端
+    broadcastOnlineUsers();
+    addLog(socket.id, socket.userName, 'changed password for', 'system', targetName);
+  });
+  
+  socket.on('admin-ban-user', ({ targetName, fingerprint }) => {
+    if (!socket.isAdmin) return;
+    if (targetName && users[targetName]) {
+      if (users[targetName].isAdmin) return; // 不能拉黑管理员
+      users[targetName].isBanned = true;
+      saveUsers();
+      // 踢掉此人
+      for (const [sid, u] of onlineUsers) {
+        if (u.name === targetName) {
+          io.to(sid).emit('kicked', '你已被管理员拉黑');
+          io.sockets.sockets.get(sid)?.disconnect();
+          break;
+        }
+      }
+      addLog(socket.id, socket.userName, 'banned', 'system', targetName);
+    }
+    if (fingerprint) {
+      // 按指纹拉黑所有匹配用户
+      for (const n in users) {
+        if (users[n].fingerprint === fingerprint && !users[n].isAdmin) {
+          users[n].isBanned = true;
+        }
+      }
+      saveUsers();
+      // 踢掉该指纹的所有在线用户
+      for (const [sid, u] of onlineUsers) {
+        if (u.fingerprint === fingerprint) {
+          io.to(sid).emit('kicked', '你的设备已被拉黑');
+          io.sockets.sockets.get(sid)?.disconnect();
+        }
+      }
+    }
+    broadcastOnlineUsers();
+  });
+  
+  socket.on('admin-unban-user', ({ targetName }) => {
+    if (!socket.isAdmin) return;
+    if (users[targetName]) {
+      users[targetName].isBanned = false;
+      saveUsers();
+      addLog(socket.id, socket.userName, 'unbanned', 'system', targetName);
+    }
+    broadcastOnlineUsers();
+  });
+  
+  // ── 用户发消息给管理员 ──
+  socket.on('user-message-to-admin', (text) => {
+    const name = socket.userName || '未知';
+    const msg = { from: name, text: text.trim(), time: Date.now() };
+    if (!msg.text) return;
+    // 转发给所有管理员
+    for (const [sid, u] of onlineUsers) {
+      if (u.isAdmin) {
+        io.to(sid).emit('admin-incoming-msg', msg);
+      }
+    }
+    addLog(socket.id, name, 'sent message to admin', 'system', msg.text.slice(0, 30));
   });
 
   // 断开连接时自动释放此 socket 的所有锁

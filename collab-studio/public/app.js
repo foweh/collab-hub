@@ -137,24 +137,119 @@ function getScanRemaining() {
   return `${min}分${sec}秒`;
 }
 
+// ─── 联系管理员 ────────────────────────────────────────
+function sendToAdmin() {
+  const input = document.getElementById('contact-admin-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  socket.emit('user-message-to-admin', text);
+  input.value = '';
+  // 给用户反馈
+  const orig = input.placeholder;
+  input.placeholder = '✅ 已发送';
+  setTimeout(() => { input.placeholder = orig; }, 1500);
+}
+
+// 管理员的收件箱
+const adminMsgs = [];
+socket.on('admin-incoming-msg', (msg) => {
+  adminMsgs.push(msg);
+  const container = document.getElementById('admin-msgs');
+  if (!container) return;
+  const time = new Date(msg.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const div = document.createElement('div');
+  div.style.cssText = 'padding:3px 4px;border-bottom:1px solid var(--border);margin-bottom:2px';
+  div.innerHTML = `<strong style="color:var(--accent)">${esc(msg.from)}</strong> ${esc(msg.text)} <span style="font-size:10px;color:var(--text-dim);float:right">${time}</span>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+});
+
+// 显示/隐藏联系管理员和管理面板
+function updateUIBasedOnRole() {
+  const contactSection = document.getElementById('contact-admin-section');
+  const adminPanel = document.getElementById('admin-panel');
+  if (contactSection) contactSection.style.display = isAdmin ? 'none' : 'block';
+  if (adminPanel) adminPanel.style.display = isAdmin ? 'block' : 'none';
+}
+
+// ─── 浏览器指纹 ────────────────────────────────────────
+function generateFingerprint() {
+  let saved = localStorage.getItem('collab-fingerprint');
+  if (saved) return saved;
+  const canvas = document.createElement('canvas');
+  canvas.width = 200; canvas.height = 50;
+  const ctx = canvas.getContext('2d');
+  ctx.textBaseline = 'top';
+  ctx.font = '14px Arial';
+  ctx.fillStyle = '#f60';
+  ctx.fillRect(0, 0, 200, 50);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('CollabStudio⚡', 10, 15);
+  const raw = [
+    navigator.userAgent,
+    screen.width + 'x' + screen.height,
+    navigator.language,
+    navigator.hardwareConcurrency || '1',
+    canvas.toDataURL().slice(100, 140),
+    new Date().getTimezoneOffset()
+  ].join('||');
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) { hash = ((hash << 5) - hash) + raw.charCodeAt(i); hash |= 0; }
+  const fp = 'fp_' + Math.abs(hash).toString(36);
+  localStorage.setItem('collab-fingerprint', fp);
+  return fp;
+}
+const myFingerprint = generateFingerprint();
+
 // ─── 入场 ────────────────────────────────────────────────
-// 自动填入上次保存的名字
+let isAdmin = false;
+let myPwd = '';
+
 const savedName = localStorage.getItem('collab-user-name');
+const savedPwd  = localStorage.getItem('collab-user-pwd');
 if (savedName) { nameInput.value = savedName; }
+if (savedPwd)  { pwdInput.value  = savedPwd; }
 
 joinBtn.addEventListener('click', join);
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
+pwdInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 
 function join() {
   myName = nameInput.value.trim() || `用户_${Math.random().toString(36).slice(2, 5)}`;
+  myPwd  = pwdInput.value.trim();
   localStorage.setItem('collab-user-name', myName);
+  localStorage.setItem('collab-user-pwd',  myPwd);
+  socket.emit('join', { name: myName, password: myPwd, fingerprint: myFingerprint });
+}
+
+// 服务器验证结果
+socket.on('login-success', ({ userName, isAdmin: admin }) => {
+  isAdmin = admin;
   joinOverlay.style.display = 'none';
   app.style.display = 'flex';
-  socket.emit('join', myName);
-  socket.emit('set-server-name', myName);
-  selfBadge.textContent = `👤 ${myName}`;
+  selfBadge.textContent = isAdmin ? `👑 ${userName}` : `👤 ${userName}`;
+  if (isAdmin) selfBadge.className = 'badge admin';
+  else selfBadge.className = 'badge';
+  updateUIBasedOnRole();
   initUI();
-}
+  if (isAdmin) renderAdminPanel();
+  
+  // 绑定联系管理员事件
+  const contactBtn = document.getElementById('contact-admin-btn');
+  const contactInput = document.getElementById('contact-admin-input');
+  if (contactBtn) contactBtn.onclick = sendToAdmin;
+  if (contactInput) contactInput.onkeydown = (e) => { if (e.key === 'Enter') sendToAdmin(); };
+});
+
+socket.on('login-error', (msg) => {
+  alert(msg);
+});
+
+socket.on('kicked', (msg) => {
+  alert(msg);
+  location.reload();
+});
 
 // ─── Socket 事件 ─────────────────────────────────────────
 socket.on('init', (data) => {
@@ -565,6 +660,77 @@ function renderOnlineUsers() {
   });
   container.innerHTML = html;
 }
+
+// ─── 管理员面板 ────────────────────────────────────────
+function renderAdminPanel() {
+  const container = document.getElementById('admin-panel');
+  if (!container) return;
+  container.style.display = 'block';
+  
+  // 请求用户列表
+  socket.emit('admin-list-users');
+  
+  // 刷新按钮
+  const refreshBtn = container.querySelector('#admin-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.onclick = () => socket.emit('admin-list-users');
+  }
+}
+
+socket.on('admin-users-list', (list) => {
+  const tbody = document.getElementById('admin-users-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  list.forEach(u => {
+    if (u.isAdmin) return; // 不显示管理员自己
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(u.name)}</td>
+      <td>${u.isBanned ? '🚫 已拉黑' : '✅ 正常'}</td>
+      <td><code style="font-size:11px;color:var(--text-dim)">${esc(u.fingerprint || '—')}</code></td>
+      <td>
+        <input type="password" class="admin-new-pwd" data-name="${esc(u.name)}" placeholder="新密码" style="width:90px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:11px;outline:none">
+        <button class="admin-pwd-btn" data-name="${esc(u.name)}" style="padding:2px 6px;font-size:11px">修改</button>
+      </td>
+      <td>
+        ${u.isBanned
+          ? `<button class="admin-unban-btn" data-name="${esc(u.name)}" style="padding:2px 6px;font-size:11px;background:var(--green);border:none;border-radius:3px;color:#000;cursor:pointer">解禁</button>`
+          : `<button class="admin-ban-btn" data-name="${esc(u.name)}" data-fp="${esc(u.fingerprint || '')}" style="padding:2px 6px;font-size:11px;background:var(--danger);border:none;border-radius:3px;color:#fff;cursor:pointer">拉黑</button>`
+        }
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+  
+  // 修改密码
+  tbody.querySelectorAll('.admin-pwd-btn').forEach(btn => {
+    btn.onclick = () => {
+      const inp = btn.parentElement.querySelector('.admin-new-pwd');
+      const pwd = inp.value.trim();
+      if (!pwd || !confirm(`将 ${btn.dataset.name} 的密码改为 "${pwd}"？`)) return;
+      socket.emit('admin-change-password', { targetName: btn.dataset.name, newPassword: pwd });
+      inp.value = '';
+    };
+  });
+  
+  // 拉黑
+  tbody.querySelectorAll('.admin-ban-btn').forEach(btn => {
+    btn.onclick = () => {
+      const name = btn.dataset.name;
+      const fp = btn.dataset.fp;
+      if (!confirm(`拉黑 ${name}？${fp ? '（同时拉黑该设备所有账号）' : ''}`)) return;
+      socket.emit('admin-ban-user', { targetName: name, fingerprint: fp || undefined });
+    };
+  });
+  
+  // 解禁
+  tbody.querySelectorAll('.admin-unban-btn').forEach(btn => {
+    btn.onclick = () => {
+      if (!confirm(`解禁 ${btn.dataset.name}？`)) return;
+      socket.emit('admin-unban-user', { targetName: btn.dataset.name });
+    };
+  });
+});
 
 // ─── 活动日志 ────────────────────────────────────────────
 function renderActivityLog() {

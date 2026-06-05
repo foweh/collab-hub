@@ -89,6 +89,7 @@ body {
 }
 .badge.online { background: #1b3a1b; color: var(--green); }
 .badge.offline { background: #3a1b1b; color: var(--danger); }
+.badge.admin { background: #3a2b1b; color: #ffd700; }
 
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 
@@ -609,78 +610,50 @@ body {
   font-size: 13px;
 }
 
-/* ─── 群聊 ─── */
-#chat-section {
+/* ─── 在线用户 ─── */
+#online-users-section {
   flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding-top: 8px;
   margin-top: 8px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-#chat-section h3 {
+#online-users-section h3 {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-dim);
   margin-bottom: 6px;
+  flex-shrink: 0;
 }
-#chat-msgs {
-  height: 140px;
-  overflow-y: auto;
-  background: var(--surface2);
-  border-radius: 6px;
-  padding: 6px 8px;
-  margin-bottom: 4px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-#chat-msgs::-webkit-scrollbar { width: 3px; }
-#chat-msgs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-.chat-line {
-  margin-bottom: 3px;
-  word-break: break-word;
-}
-.chat-line .cl-name {
-  font-weight: 600;
-  color: var(--accent);
-  margin-right: 4px;
-}
-.chat-line .cl-time {
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-left: 4px;
-}
-.chat-line.cl-system {
-  color: var(--text-dim);
-  font-style: italic;
-  text-align: center;
-  font-size: 11px;
-}
-.chat-input-row {
-  display: flex;
-  gap: 4px;
-}
-#chat-input {
+#online-users-area {
   flex: 1;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
+  overflow-y: auto;
+  min-height: 0;
+}
+.online-user-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 6px;
+  margin-bottom: 2px;
   background: var(--surface2);
+  font-size: 13px;
+}
+.online-user-item:hover {
+  background: var(--surface3);
+}
+.online-user-dot {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.online-user-name {
+  font-weight: 500;
   color: var(--text);
-  font-size: 12px;
-  outline: none;
 }
-#chat-input:focus { border-color: var(--accent); }
-#chat-send-btn {
-  padding: 5px 10px;
-  border: none;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #000;
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-}
-#chat-send-btn:hover { opacity: 0.85; }
 
 /* ─── 扫描状态提示 ─── */
 .scan-status {
@@ -733,41 +706,49 @@ body {
 /* ─── 思维导图右键菜单 ─── */
 .mm-context-menu {
   position: fixed; z-index: 9999;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 0;
-  min-width: 180px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  background: #1a1a35;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 6px 0;
+  min-width: 190px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  font-size: 13px;
+  backdrop-filter: blur(8px);
 }
 .mm-context-menu .mm-cm-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 14px; font-size: 13px;
-  cursor: pointer; color: var(--text);
-  transition: background 0.1s;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 14px;
+  cursor: pointer;
+  color: var(--text);
+  transition: background 0.08s;
+  user-select: none;
 }
-.mm-context-menu li:not(.mm-menu-sep), .mm-context-menu .mm-cm-item { cursor: pointer; }
-.mm-context-menu li:not(.mm-menu-sep):hover, .mm-context-menu .mm-cm-item:hover { background: var(--surface2); }
-.mm-context-menu .mm-menu-sep { cursor: default; }
-.mm-context-menu ul li { cursor: pointer; }
-.mm-context-menu ul li:hover { background: var(--surface2); }
-.mm-context-menu .mm-cm-item .mm-cm-icon { width: 20px; text-align: center; font-size: 14px; }
-.mm-context-menu .mm-cm-item .mm-cm-shortcut { margin-left: auto; color: var(--text-dim); font-size: 11px; }
-.mm-context-menu .mm-cm-sep { height: 1px; background: var(--border); margin: 4px 8px; }
-.mm-context-menu .mm-cm-sub {
-  position: relative;
-}
+.mm-context-menu .mm-cm-item:hover { background: rgba(79, 195, 247, 0.12); }
+.mm-context-menu .mm-cm-item:active { background: rgba(79, 195, 247, 0.2); }
+.mm-context-menu .mm-cm-icon { width: 22px; text-align: center; font-size: 14px; flex-shrink: 0; }
+.mm-context-menu .mm-cm-label { flex: 1; }
+.mm-context-menu .mm-cm-shortcut { color: var(--text-dim); font-size: 11px; margin-left: auto; letter-spacing: 0.3px; }
+.mm-context-menu .mm-cm-arrow { color: var(--text-dim); font-size: 10px; margin-left: 4px; }
+.mm-context-menu .mm-cm-sep { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 10px; }
+.mm-context-menu .mm-cm-sub { position: relative; }
 .mm-context-menu .mm-cm-sub-menu {
   display: none;
-  position: absolute; left: 100%; top: -4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 0;
-  min-width: 140px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  position: absolute; left: 100%; top: -6px;
+  background: #1a1a35;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 6px 0;
+  min-width: 100px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  backdrop-filter: blur(8px);
 }
 .mm-context-menu .mm-cm-sub:hover > .mm-cm-sub-menu { display: block; }
+.mm-context-menu .mm-color-swatch {
+  display: inline-block; width: 20px; height: 20px;
+  border-radius: 50%; border: 2px solid rgba(255,255,255,0.1);
+  cursor: pointer; margin: 2px;
+}
+.mm-context-menu .mm-color-swatch:hover { border-color: var(--accent); }
 
 /* ─── 思维导图备注面板 ─── */
 #mm-note-panel {

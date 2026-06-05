@@ -27,6 +27,7 @@
       <div class="topbar-left">
         <span class="app-title">🎬 创作工作室</span>
         <span class="badge" id="self-badge">👤 我</span>
+        <span class="badge" id="online-badge" style="display:none"></span>
         <span class="badge" id="peer-badge" style="display:none"></span>
       </div>
       <div class="topbar-right">
@@ -213,13 +214,11 @@
           <button class="toolbar-btn" id="peer-note-save">保存备注</button>
         </section>
 
-        <!-- 群聊 -->
-        <section id="chat-section">
-          <h3>💬 群聊</h3>
-          <div id="chat-msgs"></div>
-          <div class="chat-input-row">
-            <input type="text" id="chat-input" placeholder="打字回车发送..." maxlength="200">
-            <button id="chat-send-btn">发送</button>
+        <!-- 在线用户 -->
+        <section id="online-users-section">
+          <h3>👥 在线人员 <span id="online-count" style="color:var(--accent);font-weight:600"></span></h3>
+          <div id="online-users-area" class="status-card">
+            <div class="status-none">⏳ 等待其他人加入…</div>
           </div>
         </section>
       </aside>

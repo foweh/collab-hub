@@ -91,14 +91,15 @@ function foundPeer() {
   }
 }
 
-// ─── 聊天记录 ────────────────────────────────────────────
-const chatHistory = [];
-const MAX_CHAT = 200;
-function addChat(userName, text) {
-  const msg = { userName, text, time: Date.now() };
-  chatHistory.push(msg);
-  if (chatHistory.length > MAX_CHAT) chatHistory.splice(0, 100);
-  return msg;
+// ─── 在线用户追踪 ────────────────────────────────────────
+const onlineUsers = new Map(); // socket.id → { name, joinedAt }
+
+function broadcastOnlineUsers() {
+  const list = [];
+  for (const [sid, u] of onlineUsers) {
+    list.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false });
+  }
+  io.emit('online-users', list);
 }
 
 // ─── 操作审计日志 ────────────────────────────────────────
@@ -249,16 +250,28 @@ io.on('connection', (socket) => {
   console.log(`[浏览器] ${socket.id}`);
   const peerList = [];
   for (const [sid, p] of peers) if (p.connected) peerList.push({ serverId: sid, name: p.name, ip: p.ip, port: p.port, connected: true, note: p.note || '' });
+  const userList = [];
+  for (const [sid, u] of onlineUsers) {
+    userList.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false });
+  }
   socket.emit('init', {
     serverId: SERVER_ID, serverName: SERVER_NAME,
     projects: projects.map(p => ({...p})), peers: peerList,
-    scanState, chatHistory: chatHistory.slice(-50),
+    scanState, onlineUsers: userList,
     operationLog: getRecentLogs(50),
   });
 
   socket.on('join', (name) => {
     SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME;
+    socket.isAdmin = false;
+    onlineUsers.set(socket.id, { name: SERVER_NAME, joinedAt: Date.now(), isAdmin: false });
+    broadcastOnlineUsers();
     addLog(socket.id, SERVER_NAME, 'joined', 'system', '');
+  });
+  socket.on('set-admin', (admin) => {
+    socket.isAdmin = admin;
+    const u = onlineUsers.get(socket.id);
+    if (u) { u.isAdmin = admin; broadcastOnlineUsers(); }
   });
   socket.on('set-server-name', (name) => {
     SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; broadcastDiscover();
@@ -272,12 +285,7 @@ io.on('connection', (socket) => {
     if (scanState === 'nobody' || scanState === 'idle') { startScan(); broadcastDiscover(); scanInterval = setInterval(broadcastDiscover, 5000); }
     else broadcastDiscover();
   });
-  socket.on('chat-message', (text) => {
-    const name = socket.userName || SERVER_NAME; if (!text || !text.trim()) return;
-    const msg = addChat(name, text.trim());
-    io.emit('chat-message', msg);
-    broadcastToPeers({ type: 'chat', msg }, null);
-  });
+
   socket.on('peer-note', ({ serverId, note }) => {
     if (peers.has(serverId)) { peers.get(serverId).note = note || ''; broadcastPeers(); }
   });
@@ -336,6 +344,8 @@ io.on('connection', (socket) => {
 
   // 断开连接时自动释放此 socket 的所有锁
   socket.on('disconnect', () => {
+    onlineUsers.delete(socket.id);
+    broadcastOnlineUsers();
     // 通知所有 peer 释放此用户的操作锁
     broadcastToPeers({ type: 'focus-release-all', user: socket.userName || SERVER_NAME }, null);
   });
@@ -374,10 +384,7 @@ function handleBridgeMessage(fromId, msg) {
       io.emit('focus-release-all', { user: msg.user });
       broadcastToPeers(msg, fromId);
       break;
-    case 'chat':
-      if (msg.msg) io.emit('chat-message', msg.msg);
-      broadcastToPeers(msg, fromId);
-      break;
+
     case 'peer-rename':
       // 对方改了名字
       const p = peers.get(fromId);

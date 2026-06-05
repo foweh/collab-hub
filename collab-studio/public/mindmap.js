@@ -354,10 +354,22 @@ function drawNode(node, selected) {
   // 文字
   ctx.fillStyle = '#e8e8f0'; ctx.font = FONT;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const displayText = node.text || '节点';
+  const displayText = editingNodeId === node.id ? editingText : (node.text || '节点');
   const maxW = w - 20;
   ctx.save(); ctx.beginPath(); drawBody(); ctx.clip();
   ctx.fillText(displayText, x + w / 2, y + h / 2, maxW);
+  // 编辑模式：闪烁光标
+  if (editingNodeId === node.id && cursorVisible) {
+    const cursorText = displayText || '';
+    const cw = measureText(cursorText);
+    const cx = x + w / 2 + cw / 2 + 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, y + 4);
+    ctx.lineTo(cx, y + h - 4);
+    ctx.strokeStyle = '#e8e8f0';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
   ctx.restore();
 
   // 标记
@@ -539,6 +551,12 @@ function hitNodeConnector(sx, sy) {
 
 // ─── 鼠标事件 ────────────────────────────────────────────
 canvas.addEventListener('mousedown', onMouseDown);
+// 点击 canvas 外结束编辑
+document.addEventListener('mousedown', (e) => {
+  if (editingNodeId && !e.target.closest('#mindmap-editor')) {
+    finishEditing(true);
+  }
+});
 canvas.addEventListener('mousemove', onMouseMove);
 canvas.addEventListener('mouseup', onMouseUp);
 canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -548,6 +566,17 @@ canvas.addEventListener('contextmenu', onContextMenu);
 function onMouseDown(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+
+  // 编辑中点击 node 外部 → 结束编辑
+  if (editingNodeId) {
+    const hit = hitTest(sx, sy);
+    if (!hit || hit.id !== editingNodeId) {
+      finishEditing(true);
+      // 如果点击的是另一个 node，继续让选中逻辑执行
+    } else {
+      return; // 点击同一个 node，保持编辑
+    }
+  }
 
   // 检查是否点击了连接点（开始拖拽连线）
   const connH = hitNodeConnector(sx, sy);
@@ -653,7 +682,7 @@ function onDblClick(e) {
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
   const hit = hitTest(sx, sy);
-  if (hit) { showEditor(hit); }
+  if (hit) { startEditing(hit); }
 }
 
 // ─── 右键菜单 ────────────────────────────────────────────
@@ -667,25 +696,20 @@ function onContextMenu(e) {
 
   // ── 右键空白区域 ──
   if (!hit) {
-    const menu = document.createElement('div');
-    menu.className = 'mm-context-menu';
-    menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
     const items = [
-      { label: '➕ 新建节点', action: () => { const w = screenToWorld(sx, sy); pushUndo(); const id = addNodeInternal('新节点', COLORS[nodeCounter % COLORS.length]); const n = nodes.find(x => x.id === id); if (n) { n.x = w.x - 50; n.y = w.y - NODE_H/2; } selectedIds.clear(); selectedIds.add(id); render(); saveData(); } },
-      { label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes },
-      { label: '---' },
-      { label: '⊞ 自动布局', action: autoLayoutAll },
-      { label: '⬆️ 适应屏幕', action: fitToScreen },
-      { label: '🔍 搜索', shortcut: 'Ctrl+F', action: startSearch },
-      { label: '---' },
-      { label: '🔍- 缩小', action: zoomOut },
-      { label: '🔍+ 放大', action: zoomIn },
-      { label: '🗑️ 清空导图', action: () => { if (confirm('清空所有节点？')) { pushUndo(); nodes = []; edges = []; selectedIds.clear(); render(); saveData(); } } },
+      { icon: '➕', label: '新建节点', action: () => { const w = screenToWorld(sx, sy); pushUndo(); const id = addNodeInternal('新节点', COLORS[nodeCounter % COLORS.length]); const n = nodes.find(x => x.id === id); if (n) { n.x = w.x - 50; n.y = w.y - NODE_H/2; } selectedIds.clear(); selectedIds.add(id); render(); saveData(); } },
+      { icon: '📄', label: '粘贴', shortcut: '⌘V', action: pasteNodes },
+      { sep: true },
+      { icon: '⊞', label: '自动布局', action: autoLayoutAll },
+      { icon: '⬆', label: '适应屏幕', action: fitToScreen },
+      { sep: true },
+      { icon: '🔍', label: '搜索', shortcut: '⌘F', action: startSearch },
+      { sep: true },
+      { icon: '−', label: '缩小', action: zoomOut },
+      { icon: '+', label: '放大', action: zoomIn },
+      { icon: '🗑', label: '清空导图', action: () => { if (confirm('清空所有节点？')) { pushUndo(); nodes = []; edges = []; selectedIds.clear(); render(); saveData(); } } },
     ];
-    menu.innerHTML = buildMenuHTML(items);
-    document.body.appendChild(menu);
-    contextMenu = menu;
-    positionMenu(menu, e);
+    buildContextMenu(items, e);
     return;
   }
 
@@ -693,39 +717,41 @@ function onContextMenu(e) {
   if (!selectedIds.has(hit.id)) { selectedIds.clear(); selectedIds.add(hit.id); render(); onSelectionChanged(); }
   const targetNode = hit;
 
-  const menu = document.createElement('div');
-  menu.className = 'mm-context-menu';
-  menu.style.left = e.clientX + 'px'; menu.style.top = e.clientY + 'px';
-  menu.dataset.nodeId = targetNode.id;
-
   const items = [];
 
   // 多选连接
   if (selectedIds.size >= 2) {
-    items.push({ label: '🔗 连接选中', action: connectSelectedNodes });
+    items.push({ icon: '🔗', label: '连接选中', action: connectSelectedNodes });
+    items.push({ sep: true });
   }
 
-  // 常用操作（精简）
-  items.push({ label: '✏️ 编辑', shortcut: 'F2', action: () => showEditor(targetNode) });
-  items.push({ label: '👶 子节点', shortcut: 'Tab', action: addChild });
-  items.push({ label: '↔️ 同级', shortcut: 'Enter', action: addSibling });
-  items.push({ label: '👆 上级', action: addParent });
-  items.push({ label: '📋 复制', shortcut: 'Ctrl+C', action: copySelected });
-  items.push({ label: '📄 粘贴', shortcut: 'Ctrl+V', action: pasteNodes });
-  items.push({ label: '🗑️ 删除', shortcut: 'Del', action: deleteSelected });
-  items.push({ label: '---' });
-  items.push({ label: targetNode.collapsed ? '▶️ 展开' : '▼ 折叠', action: () => toggleCollapse(targetNode.id) });
-  items.push({ label: '🎨 颜色', children: COLORS.map(c => ({ label: '', color: c, action: () => setNodeColor(targetNode.id, c) })) });
-  items.push({ label: '🏷️ 标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}`, action: () => setMarker(targetNode.id, targetNode.marker === k ? null : k) })) });
-  items.push({ label: '📝 备注', action: () => showNote(targetNode) });
-  items.push({ label: '⊞ 自动布局', action: autoLayoutAll });
-  items.push({ label: '⬆️ 适应屏幕', action: fitToScreen });
-  items.push({ label: '⛶ 全屏', action: openFullscreen });
+  // ── 编辑 ──
+  items.push({ icon: '✏️', label: '编辑', shortcut: 'F2', action: () => startEditing(targetNode) });
+  items.push({ icon: '🌱', label: '子节点', shortcut: 'Tab', action: addChild });
+  items.push({ icon: '↔', label: '同级', shortcut: 'Enter', action: addSibling });
+  items.push({ icon: '👆', label: '上级', action: addParent });
+  items.push({ sep: true });
 
-  menu.innerHTML = buildMenuHTML(items);
-  document.body.appendChild(menu);
-  contextMenu = menu;
-  positionMenu(menu, e);
+  // ── 复制/删除 ──
+  items.push({ icon: '📋', label: '复制', shortcut: '⌘C', action: copySelected });
+  items.push({ icon: '📄', label: '粘贴', shortcut: '⌘V', action: pasteNodes });
+  items.push({ icon: '🗑', label: '删除', shortcut: 'Del', action: deleteSelected });
+  items.push({ sep: true });
+
+  // ── 节点属性 ──
+  items.push({ icon: targetNode.collapsed ? '▶' : '▼', label: targetNode.collapsed ? '展开' : '折叠', action: () => toggleCollapse(targetNode.id) });
+  items.push({ icon: '🎨', label: '颜色', children: COLORS.map(c => ({ color: c })) });
+  items.push({ icon: '🏷', label: '标记', children: Object.keys(MARKERS).map(k => ({ label: `${MARKERS[k]} ${k}` })) });
+  items.push({ icon: '📝', label: '备注', action: () => showNote(targetNode) });
+  items.push({ sep: true });
+
+  // ── 视图 ──
+  items.push({ icon: '⊞', label: '自动布局', action: autoLayoutAll });
+  items.push({ icon: '⬆', label: '适应屏幕', action: fitToScreen });
+  items.push({ icon: '⛶', label: '全屏', action: openFullscreen });
+
+  const menu = buildContextMenu(items, e);
+  menu.dataset.nodeId = targetNode.id;
 }
 
 function connectSelectedNodes() {
@@ -749,102 +775,111 @@ function positionMenu(menu, e) {
   if (mr.bottom > window.innerHeight) menu.style.top = (window.innerHeight - mr.height - 10) + 'px';
 }
 
-let _inlineIdCounter = 0;
+let _mmActionId = 0;
 
-function buildMenuHTML(items) {
-  if (!window._mmInlineActions) window._mmInlineActions = {};
-  let html = '<ul>';
+function buildContextMenu(items, e) {
+  hideContextMenu();
+  if (!window._mmActions) window._mmActions = {};
+  const menu = document.createElement('div');
+  menu.className = 'mm-context-menu';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+
   for (const item of items) {
-    if (item.label === '---') { html += '<li class="mm-menu-sep"></li>'; continue; }
+    if (item.sep) {
+      const sep = document.createElement('div');
+      sep.className = 'mm-cm-sep';
+      menu.appendChild(sep);
+      continue;
+    }
+
     if (item.children) {
-      html += `<li class="mm-menu-has-sub"><span>${item.label}</span><span class="mm-menu-arrow">▶</span><ul>`;
+      // 子菜单
+      const wrapper = document.createElement('div');
+      wrapper.className = 'mm-cm-sub';
+      const header = document.createElement('div');
+      header.className = 'mm-cm-item';
+      header.innerHTML = `<span class="mm-cm-icon">${item.icon||''}</span><span class="mm-cm-label">${item.label}</span><span class="mm-cm-arrow">▶</span>`;
+      wrapper.appendChild(header);
+
+      const subMenu = document.createElement('div');
+      subMenu.className = 'mm-cm-sub-menu';
       for (const sub of item.children) {
+        const el = document.createElement('div');
+        el.className = 'mm-cm-item';
         if (sub.color) {
-          html += `<li data-action="color" data-color="${sub.color}"><span class="mm-color-swatch" style="background:${sub.color}"></span></li>`;
+          el.innerHTML = `<span class="mm-color-swatch" style="background:${sub.color}"></span>`;
+          el.dataset.cmColor = sub.color;
         } else {
-          html += `<li data-action="marker" data-marker="${sub.label.split(' ')[1]}">${sub.label}</li>`;
+          el.innerHTML = `<span>${sub.label}</span>`;
+          el.dataset.cmMarker = sub.label.split(' ')[1];
         }
+        subMenu.appendChild(el);
       }
-      html += '</ul></li>';
-    } else if (item.action && !item.shortcut) {
-      // 内联 action：用唯一 id 关联，避免 textContent 匹配歧义
-      const id = 'mi' + (++_inlineIdCounter);
-      window._mmInlineActions[id] = item.action;
-      html += `<li data-inline-id="${id}"><span>${item.label}</span></li>`;
+      wrapper.appendChild(subMenu);
+      menu.appendChild(wrapper);
     } else {
-      html += `<li data-action="text"><span>${item.label}</span>${item.shortcut ? `<span class="mm-menu-shortcut">${item.shortcut}</span>` : ''}</li>`;
+      const el = document.createElement('div');
+      el.className = 'mm-cm-item';
+      el.innerHTML = `<span class="mm-cm-icon">${item.icon||''}</span><span class="mm-cm-label">${item.label}</span>${item.shortcut ? `<span class="mm-cm-shortcut">${item.shortcut}</span>` : ''}`;
+      if (item.action) {
+        const id = 'ma' + (++_mmActionId);
+        window._mmActions[id] = item.action;
+        el.dataset.cmAction = id;
+      }
+      menu.appendChild(el);
     }
   }
-  html += '</ul>';
-  return html;
+
+  document.body.appendChild(menu);
+  contextMenu = menu;
+  positionMenu(menu, e);
+  return menu;
 }
 
 document.addEventListener('click', (e) => {
-  if (contextMenu && !contextMenu.contains(e.target)) hideContextMenu();
+  if (!contextMenu) return;
+  const item = e.target.closest('.mm-cm-item');
+  if (!item || !contextMenu.contains(item)) return;
+
+  // 子菜单 header 不触发
+  if (item.closest('.mm-cm-sub') && !item.closest('.mm-cm-sub-menu')) return;
+
+  // 颜色选择
+  if (item.dataset.cmColor) {
+    setNodeColor(contextMenu.dataset.nodeId, item.dataset.cmColor);
+    hideContextMenu();
+    return;
+  }
+
+  // 标记选择
+  if (item.dataset.cmMarker) {
+    const node = nodes.find(n => n.id === contextMenu.dataset.nodeId);
+    if (node) setMarker(node.id, node.marker === item.dataset.cmMarker ? null : item.dataset.cmMarker);
+    hideContextMenu();
+    return;
+  }
+
+  // 内联 action
+  if (item.dataset.cmAction && window._mmActions && window._mmActions[item.dataset.cmAction]) {
+    hideContextMenu();
+    window._mmActions[item.dataset.cmAction]();
+    return;
+  }
 });
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') hideContextMenu();
 });
 
+// 点击菜单外部关闭
+document.addEventListener('mousedown', (e) => {
+  if (contextMenu && !contextMenu.contains(e.target)) hideContextMenu();
+});
+
 function hideContextMenu() {
   if (contextMenu) { contextMenu.remove(); contextMenu = null; }
 }
-
-// 菜单点击事件（委托）
-document.addEventListener('click', (e) => {
-  if (!contextMenu) return;
-  const li = e.target.closest('li');
-  if (!li || !contextMenu.contains(li)) return;
-  if (li.classList.contains('mm-menu-has-sub') || li.querySelector('.mm-menu-arrow')) return;
-
-  if (li.dataset.action === 'color') {
-    const color = li.dataset.color;
-    setNodeColor(contextMenu.dataset.nodeId, color);
-    hideContextMenu();
-    return;
-  }
-  if (li.dataset.action === 'marker') {
-    const marker = li.dataset.marker;
-    const node = nodes.find(n => n.id === contextMenu.dataset.nodeId);
-    if (node) setMarker(node.id, node.marker === marker ? null : marker);
-    hideContextMenu();
-    return;
-  }
-
-  // 优先用内联 action（通过 data-inline-id 关联）
-  const inlineId = li.dataset.inlineId;
-  if (inlineId && window._mmInlineActions && window._mmInlineActions[inlineId]) {
-    hideContextMenu();
-    window._mmInlineActions[inlineId]();
-    return;
-  }
-
-  const text = li.textContent.trim();
-  hideContextMenu();
-  // Match by label
-  const actions = {
-    '✏️ 编辑': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
-    '👶 子节点': addChild,
-    '↔️ 同级': addSibling,
-    '👆 上级': addParent,
-    '▼ 折叠': () => toggleCollapse(contextMenu.dataset.nodeId),
-    '▶️ 展开': () => toggleCollapse(contextMenu.dataset.nodeId),
-    '📋 复制': copySelected,
-    '📄 粘贴': pasteNodes,
-    '🗑️ 删除': deleteSelected,
-    '📝 备注': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showNote(n); },
-    '⊞ 自动布局': autoLayoutAll,
-    '⬆️ 适应屏幕': fitToScreen,
-    '🔗 连接选中': connectSelectedNodes,
-    '➕ 新建节点': () => { const n = nodes.find(x => x.id === contextMenu.dataset.nodeId); if (n) showEditor(n); },
-    '🔍- 缩小': zoomOut,
-    '🔍+ 放大': zoomIn,
-    '🗑️ 清空导图': () => { if (confirm('清空所有节点？')) { if (window.pushUndo) window.pushUndo(); nodes = []; edges = []; selectedIds.clear(); if (window.render) window.render(); if (window.saveData) window.saveData(); } },
-  };
-  const act = actions[text];
-  if (act) act();
-});
 
 // ─── 节点操作 ────────────────────────────────────────────
 function addNodeInternal(text, color) {
@@ -901,7 +936,7 @@ function addChild() {
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData();
   const s = worldToScreen(child.x, child.y);
-  showEditor(child);
+  startEditing(child);
 }
 
 function addSibling() {
@@ -919,7 +954,7 @@ function addSibling() {
   const spot = findVacantSpot(ref.x, lastY + VERT_GAP, sibling.width || NODE_MIN_W, sh, id);
   sibling.x = spot.x; sibling.y = spot.y;
   selectedIds.clear(); selectedIds.add(id);
-  render(); saveData(); showEditor(sibling);
+  render(); saveData(); startEditing(sibling);
 }
 
 function addParent() {
@@ -1065,68 +1100,48 @@ function hideNote() {
   if (noteOverlay) { noteOverlay.remove(); noteOverlay = null; }
 }
 
-// ─── 文字编辑浮层 ────────────────────────────────────────
-let editorInput = null;
-let currentEditNodeId = null;
+// ─── Canvas 内联编辑 ────────────────────────────────────
+let editingNodeId = null;
+let editingText = '';
+let cursorBlinkTimer = null;
+let cursorVisible = true;
 
-function showEditor(node) {
+function startEditing(node) {
   if (isLocked('mindmap-node', node.id)) {
-    const user = getLockUser('mindmap-node', node.id);
-    showToast(`🔒 ${user} 正在编辑`); return;
+    showToast(`🔒 ${getLockUser('mindmap-node', node.id)} 正在编辑`);
+    return;
   }
-  hideEditor();
   acquireLock('mindmap-node', node.id);
-  currentEditNodeId = node.id;
-
-  const s = worldToScreen(node.x, node.y);
-  const sw = (node.width || NODE_MIN_W) * camera.zoom;
-  const sh = (node.height || NODE_H) * camera.zoom;
-
-  const input = document.createElement('input');
-  input.className = 'mm-inline-editor';
-  input.value = node.text || '';
-  input.style.left = s.x + 'px'; input.style.top = s.y + 'px';
-  input.style.width = sw + 'px'; input.style.height = sh + 'px';
-  input.style.fontSize = Math.round(14 * camera.zoom) + 'px';
-  input.style.borderLeftColor = node.color || '#4fc3f7';
-  canvas.parentElement.appendChild(input);
-  input.focus(); input.select();
-  editorInput = input;
-
-  // 实时自动调整宽度
-  function resizeInput() {
-    const tw = measureText(input.value || '节点');
-    const nw = Math.max(NODE_MIN_W, tw + NODE_PAD * 2);
-    node.width = nw;
-    node.textWidth = tw;
-    input.style.width = (nw * camera.zoom - 4) + 'px';
+  editingNodeId = node.id;
+  editingText = node.text || '';
+  cursorVisible = true;
+  selectedIds.clear(); selectedIds.add(node.id);
+  clearInterval(cursorBlinkTimer);
+  cursorBlinkTimer = setInterval(() => {
+    cursorVisible = !cursorVisible;
     render();
-  }
-  input.addEventListener('input', resizeInput);
-
-  const finish = () => {
-    if (currentEditNodeId) { releaseLock('mindmap-node', currentEditNodeId); currentEditNodeId = null; }
-    if (node.text !== input.value) pushUndo();
-    node.text = input.value || '节点';
-    node.textWidth = measureText(node.text);
-    node.width = Math.max(NODE_MIN_W, node.textWidth + NODE_PAD * 2);
-    input.remove(); editorInput = null;
-    render(); saveData();
-  };
-
-  input.addEventListener('blur', finish);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') { input.value = node.text; input.blur(); }
-    if (e.key === 'Tab') { e.preventDefault(); input.blur(); addChild(); }
-  });
+  }, 530);
+  render();
 }
 
-function hideEditor() {
-  if (editorInput) {
-    if (currentEditNodeId) { releaseLock('mindmap-node', currentEditNodeId); currentEditNodeId = null; }
-    editorInput.remove(); editorInput = null;
+function finishEditing(save) {
+  if (!editingNodeId) return;
+  clearInterval(cursorBlinkTimer);
+  cursorBlinkTimer = null;
+  const node = nodes.find(n => n.id === editingNodeId);
+  if (node) {
+    releaseLock('mindmap-node', editingNodeId);
+    if (save !== false && node.text !== editingText) {
+      pushUndo();
+      node.text = editingText || '节点';
+      node.textWidth = measureText(node.text);
+      node.width = Math.max(NODE_MIN_W, node.textWidth + NODE_PAD * 2);
+    }
   }
+  editingNodeId = null;
+  editingText = '';
+  render();
+  if (node) saveData();
 }
 
 // ─── Toast ────────────────────────────────────────────────
@@ -1145,9 +1160,9 @@ function showToast(msg) {
 }
 
 window.addEventListener('locks-changed', () => {
-  if (currentEditNodeId && isLocked('mindmap-node', currentEditNodeId)) {
-    const user = getLockUser('mindmap-node', currentEditNodeId);
-    if (user && user !== myName) { hideEditor(); showToast(`🔒 ${user} 正在编辑`); }
+  if (editingNodeId && isLocked('mindmap-node', editingNodeId)) {
+    const user = getLockUser('mindmap-node', editingNodeId);
+    if (user && user !== myName) { finishEditing(false); showToast(`🔒 ${user} 正在编辑`); }
   }
   if (document.getElementById('panel-mindmap').classList.contains('active')) render();
 });
@@ -1172,10 +1187,48 @@ socket.on('project-updated', (data) => {
 
 // ─── 键盘快捷键 ──────────────────────────────────────────
 document.addEventListener('keydown', (e) => {
-  if (editorInput || noteOverlay || contextMenu) return;
+  if (noteOverlay || contextMenu) return;
   const panel = document.getElementById('panel-mindmap');
   if (!panel || !panel.classList.contains('active')) return;
 
+  // ── Canvas 内编辑模式 ──
+  if (editingNodeId) {
+    if (e.key === 'Enter') { e.preventDefault(); finishEditing(true); return; }
+    if (e.key === 'Escape') { e.preventDefault(); finishEditing(false); return; }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      finishEditing(true);
+      addChild();
+      return;
+    }
+    if (e.key === 'Backspace') {
+      // 删除时不要触发 deleteSelected
+      e.preventDefault();
+      editingText = editingText.slice(0, -1);
+      const node = nodes.find(n => n.id === editingNodeId);
+      if (node) {
+        node.textWidth = measureText(editingText || '节点');
+        node.width = Math.max(NODE_MIN_W, node.textWidth + NODE_PAD * 2);
+      }
+      render();
+      return;
+    }
+    // 可打印字符
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      editingText += e.key;
+      const node = nodes.find(n => n.id === editingNodeId);
+      if (node) {
+        node.textWidth = measureText(editingText || '节点');
+        node.width = Math.max(NODE_MIN_W, node.textWidth + NODE_PAD * 2);
+      }
+      render();
+      return;
+    }
+    return; // 编辑中其他键忽略
+  }
+
+  // ── 普通快捷键 ──
   if (e.ctrlKey || e.metaKey) {
     switch (e.key.toLowerCase()) {
       case 'z': e.preventDefault(); if (e.shiftKey) redo(); else undo(); break;
@@ -1193,7 +1246,7 @@ document.addEventListener('keydown', (e) => {
     case 'Tab': e.preventDefault(); addChild(); break;
     case 'Enter': e.preventDefault(); addSibling(); break;
     case 'Delete': case 'Backspace': e.preventDefault(); deleteSelected(); break;
-    case ' ': case 'F2': e.preventDefault(); const n = getSelectedNode(); if (n) showEditor(n); break;
+    case ' ': case 'F2': e.preventDefault(); const n = getSelectedNode(); if (n) startEditing(n); break;
   }
 });
 

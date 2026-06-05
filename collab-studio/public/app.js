@@ -34,6 +34,7 @@ const $$ = (s) => document.querySelectorAll(s);
 const joinOverlay     = $('#join-overlay');
 const app             = $('#app');
 const nameInput       = $('#name-input');
+const pwdInput        = $('#pwd-input');
 const joinBtn         = $('#join-btn');
 const selfBadge       = $('#self-badge');
 const peerBadge       = $('#peer-badge');
@@ -54,9 +55,7 @@ const receiveModal    = $('#receive-modal');
 const receiveInfo     = $('#receive-info');
 const receiveList     = $('#receive-list');
 const receiveOk       = $('#receive-ok');
-const chatMsgs        = $('#chat-msgs');
-const chatInput       = $('#chat-input');
-const chatSendBtn     = $('#chat-send-btn');
+let onlineUsers = [];
 
 // ─── 扫描状态 ────────────────────────────────────────────
 let scanState = 'idle';
@@ -126,18 +125,7 @@ socket.on('operation-log', (entry) => {
   window.dispatchEvent(new CustomEvent('log-entry', { detail: entry }));
 });
 
-socket.on('init', (data) => {
-  // ... existing init handler
-  // We'll extend it below
-});
 
-// 由于上面已经有 socket.on('init') 了，我在这里用另一个方式
-// 实际上 init 已经在前面处理了，我们只补充 operationLog
-// 在第一个 socket.on('init') 里添加
-// 但为了不破坏已有代码，用第二个 init 监听来补充
-socket.on('init', (data) => {
-  if (data.operationLog) operationLog = data.operationLog;
-});
 
 function getScanRemaining() {
   if (!scanStartTime) return '<1 分钟';
@@ -174,11 +162,11 @@ socket.on('init', (data) => {
   serverName = data.serverName;
   projects = data.projects || [];
   peers = data.peers || [];
+  onlineUsers = data.onlineUsers || [];
   scanState = data.scanState || 'idle';
   renderProjects();
   updatePeersUI();
-  // 加载聊天历史
-  if (data.chatHistory) data.chatHistory.forEach(addChatLine);
+  renderOnlineUsers();
 });
 
 socket.on('bridge-message', (msg) => {
@@ -247,9 +235,10 @@ socket.on('scan-state', (data) => {
   updatePeersUI();
 });
 
-// ── 群聊 ──
-socket.on('chat-message', (msg) => {
-  addChatLine(msg);
+// ── 在线用户 ──
+socket.on('online-users', (list) => {
+  onlineUsers = list;
+  renderOnlineUsers();
 });
 
 // ─── 导航切换 ────────────────────────────────────────────
@@ -536,32 +525,46 @@ window.registerCollabModule = function(name, api) {
   CollabStudio.modules[name] = api;
 };
 
-// ─── 群聊 ────────────────────────────────────────────────
-function addChatLine(msg) {
-  const d = document.createElement('div');
-  d.className = 'chat-line';
-  if (msg.system) {
-    d.classList.add('cl-system');
-    d.textContent = msg.text;
-  } else {
-    const t = new Date(msg.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    d.innerHTML = `<span class="cl-name">${esc(msg.userName)}</span>${esc(msg.text)}<span class="cl-time">${t}</span>`;
+// ─── 在线用户渲染 ────────────────────────────────────────
+function renderOnlineUsers() {
+  const container = document.getElementById('online-users-area');
+  if (!container) return;
+  
+  const count = onlineUsers.length;
+  // 更新顶栏 badge
+  const badge = document.getElementById('online-badge');
+  if (badge) {
+    if (count > 0) {
+      badge.style.display = 'inline';
+      badge.className = 'badge online';
+      badge.textContent = `👥 ${count} 人在线`;
+    } else {
+      badge.style.display = 'none';
+    }
   }
-  chatMsgs.appendChild(d);
-  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+  
+  // 渲染右侧列表
+  if (count === 0) {
+    container.innerHTML = '<div class="status-none">⏳ 等待其他人加入…</div>';
+    return;
+  }
+  
+  let html = '';
+  onlineUsers.forEach(u => {
+    const isMe = u.name === myName;
+    const isAdminUser = u.isAdmin;
+    let icon, label;
+    if (isMe && isAdminUser) { icon = '👑'; label = `${esc(u.name)} (管理员/我)`; }
+    else if (isMe)           { icon = '⭐'; label = `${esc(u.name)} (我)`; }
+    else if (isAdminUser)    { icon = '👑'; label = `${esc(u.name)} (管理员)`; }
+    else                     { icon = '🟢'; label = esc(u.name); }
+    html += `<div class="online-user-item">
+      <span class="online-user-dot">${icon}</span>
+      <span class="online-user-name">${label}</span>
+    </div>`;
+  });
+  container.innerHTML = html;
 }
-
-function sendChat() {
-  const text = chatInput.value.trim();
-  if (!text) return;
-  socket.emit('chat-message', text);
-  chatInput.value = '';
-}
-
-chatSendBtn.addEventListener('click', sendChat);
-chatInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') sendChat();
-});
 
 // ─── 活动日志 ────────────────────────────────────────────
 function renderActivityLog() {

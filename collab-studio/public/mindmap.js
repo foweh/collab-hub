@@ -1316,8 +1316,6 @@ function toggleHistoryDropdown() {
 }
 function closeHist(e) { if (histDropdown && !histDropdown.contains(e.target) && e.target !== histBtn) { histDropdown.remove(); histDropdown = null; } }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
 // 辅助：直接从 projects 列表打开导图
 function openProjectFromList(p) {
   if (window.openMindMapEditor) window.openMindMapEditor(p);

@@ -7,10 +7,6 @@ const container = $('#script-editor');
 const scriptTitle = $('#script-title');
 
 // ─── 工具 ────────────────────────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-
 function autoResize(ta) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; }
 
 function getCharacters() {

@@ -168,33 +168,7 @@ function updateUIBasedOnRole() {
 }
 
 // ─── 浏览器指纹 ────────────────────────────────────────
-function generateFingerprint() {
-  let saved = localStorage.getItem('collab-fingerprint');
-  if (saved) return saved;
-  const canvas = document.createElement('canvas');
-  canvas.width = 200; canvas.height = 50;
-  const ctx = canvas.getContext('2d');
-  ctx.textBaseline = 'top';
-  ctx.font = '14px Arial';
-  ctx.fillStyle = '#f60';
-  ctx.fillRect(0, 0, 200, 50);
-  ctx.fillStyle = '#fff';
-  ctx.fillText('CollabStudio⚡', 10, 15);
-  const raw = [
-    navigator.userAgent,
-    screen.width + 'x' + screen.height,
-    navigator.language,
-    navigator.hardwareConcurrency || '1',
-    canvas.toDataURL().slice(100, 140),
-    new Date().getTimezoneOffset()
-  ].join('||');
-  let hash = 0;
-  for (let i = 0; i < raw.length; i++) { hash = ((hash << 5) - hash) + raw.charCodeAt(i); hash |= 0; }
-  const fp = 'fp_' + Math.abs(hash).toString(36);
-  localStorage.setItem('collab-fingerprint', fp);
-  return fp;
-}
-const myFingerprint = generateFingerprint();
+const myFingerprint = window.CollabStudioFingerprint ? window.CollabStudioFingerprint() : '';
 
 // ─── 入场 ────────────────────────────────────────────────
 
@@ -211,13 +185,12 @@ if (!savedAuth || !savedAuth.name) {
 }
 
 let myName = savedAuth ? savedAuth.name : '';
-let myPwd = savedAuth ? (savedAuth.pwd || '') : '';  // 从登录页传递的密码
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 
-// 连接后自动用已保存的身份登录
+// 连接后自动用已保存的身份登录（密码不保存，管理员需重新登录）
 socket.on('connect', () => {
   if (myName) {
-    socket.emit('join', { name: myName, password: myPwd, fingerprint: myFingerprint });
+    socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
   }
 });
 
@@ -783,11 +756,6 @@ receiveOk.addEventListener('click', () => {
 // ─── 工具 ────────────────────────────────────────────────
 function cleanProjectName(name) {
   return (name || '').replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2702}-\u{27B0}\s]+/u, '');
-}
-function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
 }
 function timeAgo(ts) {
   const diff = Date.now() - ts;

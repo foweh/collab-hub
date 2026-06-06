@@ -112,12 +112,14 @@ try {
   }
 } catch (e) { console.error('[用户] 加载失败', e.message); }
 
-// 确保管理员账号存在
+// 确保管理员账号存在且密码正确
+const adminPwdHash = hashPwd('26275265');
 if (!users['热合曼']) {
-  users['热合曼'] = { password: hashPwd('26275265'), isAdmin: true, fingerprint: '', isBanned: false };
-} else if (users['热合曼'].password && users['热合曼'].password.length < 20) {
-  // 迁移旧版明文密码
-  users['热合曼'].password = hashPwd(users['热合曼'].password);
+  users['热合曼'] = { password: adminPwdHash, isAdmin: true, fingerprint: '', isBanned: false };
+} else if (users['热合曼'].password !== adminPwdHash) {
+  // 修复不匹配的密码（兼容旧版数据迁移）
+  console.log('[用户] 修复管理员密码');
+  users['热合曼'].password = adminPwdHash;
 }
 
 function saveUsers() {

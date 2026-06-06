@@ -10,7 +10,6 @@ window.CollabStudio = {
   get serverId() { return serverId; },
 };
 
-// ─── 主应用（多机版） ────────────────────────────────────
 const socket = io();
 CollabStudio.socket = socket;
 
@@ -21,7 +20,6 @@ if (!myUserId) {
   localStorage.setItem('collab-user-id', myUserId);
 }
 
-let myName = '';
 let serverId = '';
 let serverName = '';
 let projects = [];
@@ -199,8 +197,6 @@ function generateFingerprint() {
 const myFingerprint = generateFingerprint();
 
 // ─── 入场 ────────────────────────────────────────────────
-let isAdmin = false;
-let myPwd = '';
 
 // 从 sessionStorage 读取登录凭证
 let savedAuth = null;
@@ -215,12 +211,13 @@ if (!savedAuth || !savedAuth.name) {
 }
 
 let myName = savedAuth ? savedAuth.name : '';
+let myPwd = savedAuth ? (savedAuth.pwd || '') : '';  // 从登录页传递的密码
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 
 // 连接后自动用已保存的身份登录
 socket.on('connect', () => {
   if (myName) {
-    socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+    socket.emit('join', { name: myName, password: myPwd, fingerprint: myFingerprint });
   }
 });
 

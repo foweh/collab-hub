@@ -186,8 +186,31 @@
       loginBtn.textContent = '登录中...';
       loginError.style.display = 'none';
 
-      const fingerprint = localStorage.getItem('collab-fp') || ('fp_' + Math.random().toString(36).slice(2, 10));
-      localStorage.setItem('collab-fp', fingerprint);
+      // 使用与 app.js 一致的指纹生成
+      let fingerprint = localStorage.getItem('collab-fingerprint');
+      if (!fingerprint) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 200; canvas.height = 50;
+        const ctx = canvas.getContext('2d');
+        ctx.textBaseline = 'top';
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(0, 0, 200, 50);
+        ctx.fillStyle = '#fff';
+        ctx.fillText('CollabStudio⚡', 10, 15);
+        const raw = [
+          navigator.userAgent,
+          screen.width + 'x' + screen.height,
+          navigator.language,
+          navigator.hardwareConcurrency || '1',
+          canvas.toDataURL().slice(100, 140),
+          new Date().getTimezoneOffset()
+        ].join('||');
+        let hash = 0;
+        for (let i = 0; i < raw.length; i++) { hash = ((hash << 5) - hash) + raw.charCodeAt(i); hash |= 0; }
+        fingerprint = 'fp_' + Math.abs(hash).toString(36);
+        localStorage.setItem('collab-fingerprint', fingerprint);
+      }
 
       socket.emit('join', { name, password: pwd, fingerprint: fingerprint });
     }
@@ -209,6 +232,7 @@
       // 保存登录凭证到 sessionStorage（关闭浏览器即失效）
       sessionStorage.setItem('collab-auth', JSON.stringify({
         name: userName,
+        pwd: loginPwd.value,
         isAdmin: isAdmin
       }));
       // 保存用户名到 localStorage 以便下次自动填入

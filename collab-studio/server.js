@@ -442,7 +442,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    SERVER_NAME = userName; socket.userName = userName;
+    socket.userName = userName;
     let isAdmin = false;
 
     if (users[userName] && users[userName].isAdmin) {
@@ -501,7 +501,7 @@ io.on('connection', (socket) => {
 
   // ── 项目管理 ──
   socket.on('project-create', (data) => {
-    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME, visibility: 'private' };
+    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
@@ -538,13 +538,13 @@ io.on('connection', (socket) => {
   socket.on('project-create-batch', (data) => {
     const { name, children } = data;
     if (!name) return;
-    const folder = { id: uuid().slice(0, 12), type: 'folder', name, data: { children: [] }, createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME };
+    const folder = { id: uuid().slice(0, 12), type: 'folder', name, data: { children: [] }, createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME };
     projects.push(folder);
     socket.emit('project-created', folder);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', 'folder', folder.name);
     const created = [folder];
     (children || []).forEach(c => {
-      const child = { id: uuid().slice(0, 12), type: c.type, name: c.name || '未命名', data: getDefaultData(c.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME, parentId: folder.id };
+      const child = { id: uuid().slice(0, 12), type: c.type, name: c.name || '未命名', data: getDefaultData(c.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, parentId: folder.id };
       projects.push(child);
       socket.emit('project-created', child);
       created.push(child);

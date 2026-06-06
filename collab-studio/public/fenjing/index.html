@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script type="module" crossorigin src="/fenjing/assets/index-DSxpk27Y.js"></script>
     <link rel="stylesheet" crossorigin href="/fenjing/assets/index-XptjBxIK.css">
+    <script src="/socket.io/socket.io.js"></script>
     <style>.header-tabs{display:none!important}
 .draw-panel{display:none;flex-direction:column;height:100%;width:100%;position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;background:var(--bg,#f8fafc)}
 .draw-panel.open{display:flex}
@@ -35,6 +36,12 @@
 .draw-panel .panel-actions button{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:12px;transition:.12s}
 .draw-panel .panel-actions button:hover{border-color:#4f46e5}
 .draw-panel .panel-actions .primary{background:#4f46e5;color:#fff;border-color:#4f46e5}
+/* 镜头绘图按钮 */
+.s-hot-btn{position:absolute;right:4px;bottom:4px;width:24px;height:24px;border-radius:4px;border:1px solid var(--border,#e2e8f0);background:rgba(15,15,26,.7);color:#ccc;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5;opacity:0;transition:opacity .15s}
+.s-cell.s-img:hover .s-hot-btn{opacity:1}
+.s-hot-btn:hover{background:#4f46e5;color:#fff;border-color:#4f46e5}
+.s-hot-btn.saved{color:#4f46e5;border-color:#4f46e5}
+.draw-mode-badge{font-size:12px;color:#64748b;margin-left:12px}
 </style>
   </head>
   <body>
@@ -43,9 +50,10 @@
     <!-- 绘画面板（注入到分镜工具） -->
     <div class="draw-panel" id="drawPanel">
       <div class="panel-header">
-        <h2>✏️ 绘画板</h2>
+        <h2>✏️ 绘画板<span class="draw-mode-badge" id="drawModeBadge"></span></h2>
         <div class="panel-actions">
-          <button class="primary" id="drawExport">⬇️ 导出 PNG</button>
+          <button id="drawSaveShot" class="primary" style="display:none">✓ 保存到镜头</button>
+          <button id="drawExport">⬇️ 导出 PNG</button>
         </div>
       </div>
       <div class="draw-tb">
@@ -67,132 +75,330 @@
     </div>
 
     <script>
-    // ─── 绘画功能注入 ──────────────────────────────────
+    // ─── 绘画 + 镜头绘图注入 ──────────────────────────
     (function() {
-      const waitFor = setInterval(() => {
+      'use strict';
+
+      // ── DOM 引用 ──
+      const drawPanel   = document.getElementById('drawPanel');
+      const canvas      = document.getElementById('draw-canvas');
+      const appEl       = document.getElementById('app');
+      const ctx         = canvas.getContext('2d');
+
+      // ── 绘画状态 ──
+      let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush';
+      let offscreen = document.createElement('canvas');
+      let currentShotId = null;      // 当前正在绘制的镜头 ID
+      let currentShotNum = null;     // 镜头编号（显示用）
+
+      // ── Socket.IO（连接分镜 namespace）──
+      let fenjingSocket = null;
+      let localShots = [];           // shots 本地副本，与服务器同步
+
+      function connectFenjing() {
+        if (typeof io === 'undefined') return setTimeout(connectFenjing, 500);
+        fenjingSocket = io('/fenjing');
+
+        fenjingSocket.on('connect', () => {
+          console.log('[绘画] Socket.IO 已连接到 /fenjing');
+        });
+
+        fenjingSocket.on('fenjing:state-sync', (state) => {
+          localShots = state.shots || [];
+          console.log('[绘画] 收到初始状态，shots:', localShots.length);
+        });
+
+        fenjingSocket.on('fenjing:shots-update', (shots) => {
+          localShots = shots;
+          // 刷新所有镜头行的绘图按钮状态
+          document.querySelectorAll('.shot-row').forEach(refreshShotRow);
+        });
+      }
+      connectFenjing();
+
+      // ── 画布尺寸 ──
+      function resizeCanvas() {
+        const wrap = canvas.parentElement;
+        const rect = wrap.getBoundingClientRect();
+        const w = Math.round(rect.width), h = Math.round(rect.height);
+        if (canvas.width === w && canvas.height === h) return;
+        if (canvas.width > 0 && canvas.height > 0) {
+          const tmp = document.createElement('canvas');
+          tmp.width = canvas.width; tmp.height = canvas.height;
+          tmp.getContext('2d').drawImage(canvas, 0, 0);
+          offscreen = tmp;
+        }
+        canvas.width = w; canvas.height = h;
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, w, h);
+        if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0, w, h);
+      }
+
+      new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+
+      // ── 坐标 ──
+      function getPos(e) {
+        const r = canvas.getBoundingClientRect();
+        const cx = e.touches ? e.touches[0].clientX : e.clientX;
+        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (cx - r.left) * (canvas.width / r.width), y: (cy - r.top) * (canvas.height / r.height) };
+      }
+
+      function start(e) { e.preventDefault(); isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+      function move(e) {
+        if (!isDrawing) return; e.preventDefault();
+        const p = getPos(e);
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        if (tool === 'eraser') {
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.strokeStyle = 'rgba(0,0,0,1)';
+          ctx.lineWidth = parseInt(document.getElementById('drawSize').value) * 4;
+        } else {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = document.getElementById('drawColor').value;
+          ctx.lineWidth = parseInt(document.getElementById('drawSize').value);
+        }
+        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+        lastX = p.x; lastY = p.y;
+      }
+      function stop() { if (!isDrawing) return; isDrawing = false; ctx.globalCompositeOperation = 'source-over'; }
+
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', move);
+      canvas.addEventListener('mouseup', stop);
+      canvas.addEventListener('mouseleave', stop);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      canvas.addEventListener('touchend', stop);
+
+      // ── 工具绑定 ──
+      const brushBtn  = document.getElementById('drawBrush');
+      const eraserBtn = document.getElementById('drawEraser');
+      brushBtn.addEventListener('click', () => { tool = 'brush'; brushBtn.classList.add('active'); eraserBtn.classList.remove('active'); canvas.style.cursor = 'crosshair'; });
+      eraserBtn.addEventListener('click', () => { tool = 'eraser'; eraserBtn.classList.add('active'); brushBtn.classList.remove('active'); canvas.style.cursor = 'cell'; });
+
+      const sizeInput = document.getElementById('drawSize');
+      const sizeVal   = document.getElementById('drawSizeVal');
+      sizeInput.addEventListener('input', () => { sizeVal.textContent = sizeInput.value; });
+
+      document.getElementById('drawClear').addEventListener('click', () => {
+        offscreen.width = 0; offscreen.height = 0;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      });
+
+      document.getElementById('drawExport').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = '分镜_' + new Date().toISOString().slice(0, 19).replace(/[:-]/g, '') + '.png';
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      });
+
+      window.addEventListener('resize', () => { if (drawPanel.classList.contains('open')) resizeCanvas(); });
+
+      // ── 保存绘画到镜头 ──
+      const drawSaveShotBtn = document.getElementById('drawSaveShot');
+      drawSaveShotBtn.addEventListener('click', () => {
+        if (!currentShotId) return;
+        const dataUrl = canvas.toDataURL('image/png');
+        // 更新本地 shots 副本
+        const shot = localShots.find(s => s.id === currentShotId);
+        if (shot) {
+          shot.image = dataUrl;
+          // 通过 Socket.IO 发送更新
+          if (fenjingSocket && fenjingSocket.connected) {
+            fenjingSocket.emit('fenjing:shots-update', localShots);
+          }
+        }
+        // 关闭绘画面板
+        closeDrawPanel();
+      });
+
+      // ── 打开/关闭绘画面板 ──
+      function openDrawPanel(shotId, shotNum) {
+        currentShotId = shotId || null;
+        currentShotNum = shotNum || null;
+
+        const badge = document.getElementById('drawModeBadge');
+        const saveBtn = document.getElementById('drawSaveShot');
+        const drawBack = document.getElementById('drawBack');
+
+        if (shotId) {
+          badge.textContent = '→ 镜头 ' + (shotNum || '') + ' 绘图';
+          saveBtn.style.display = '';
+          // 如果有已有绘图，加载到画布
+          const shot = localShots.find(s => s.id === shotId);
+          if (shot && shot.image && typeof shot.image === 'string' && shot.image.startsWith('data:')) {
+            loadImageToCanvas(shot.image);
+          } else {
+            // 清空画布
+            offscreen.width = 0; offscreen.height = 0;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#1a1a2e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+        } else {
+          badge.textContent = '';
+          saveBtn.style.display = 'none';
+        }
+
+        appEl.style.display = 'none';
+        drawPanel.classList.add('open');
+        // 更新返回按钮文字
+        drawBack.textContent = shotId ? '✕ 取消' : '← 返回分镜';
+        setTimeout(resizeCanvas, 100);
+      }
+
+      function closeDrawPanel() {
+        drawPanel.classList.remove('open');
+        appEl.style.display = '';
+        document.querySelectorAll('.h-btn.draw-btn-active').forEach(b => b.classList.remove('draw-btn-active'));
+        currentShotId = null;
+        currentShotNum = null;
+      }
+
+      document.getElementById('drawBack').addEventListener('click', closeDrawPanel);
+
+      // ── 加载图片到画布 ──
+      function loadImageToCanvas(dataUrl) {
+        const img = new Image();
+        img.onload = () => {
+          const w = canvas.width, h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = '#1a1a2e';
+          ctx.fillRect(0, 0, w, h);
+          // 居中绘制，保持比例
+          const scale = Math.min(w / img.width, h / img.height) * 0.85;
+          const dw = img.width * scale, dh = img.height * scale;
+          const dx = (w - dw) / 2, dy = (h - dh) / 2;
+          ctx.drawImage(img, dx, dy, dw, dh);
+          // 保存到 offscreen 供 resize 使用
+          const tmp = document.createElement('canvas');
+          tmp.width = w; tmp.height = h;
+          tmp.getContext('2d').drawImage(canvas, 0, 0);
+          offscreen = tmp;
+        };
+        img.src = dataUrl;
+      }
+
+      // ── 注入镜头绘图按钮 ──
+      function injectDrawButton(shotRow) {
+        if (shotRow.querySelector('.s-hot-btn')) return; // 已注入
+
+        // 获取镜头 ID — 从 shot-row 的 DOM 结构中无法直接获取，
+        // 我们在 .s-cell.s-img 中查找图片组件的引用，然后注入
+        const imgCell = shotRow.querySelector('.s-cell.s-img');
+        if (!imgCell) return;
+
+        // 让图片单元格 position:relative（若未设）
+        if (getComputedStyle(imgCell).position === 'static') {
+          imgCell.style.position = 'relative';
+        }
+
+        const btn = document.createElement('button');
+        btn.className = 's-hot-btn';
+        btn.innerHTML = '✏️';
+        btn.title = '绘制此镜头画面';
+        imgCell.appendChild(btn);
+
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // 从 DOM 中读取镜头编号
+          const numCell = shotRow.querySelector('.s-cell.s-num');
+          const shotNum = numCell ? parseInt(numCell.textContent.trim()) : null;
+          let shot = null;
+          if (shotNum) {
+            shot = localShots.find(s => s.number === shotNum);
+          }
+          if (!shot) {
+            // 降级：按行索引匹配
+            const rows = document.querySelectorAll('.shot-row:not(.new-shot-placeholder)');
+            let idx = 0;
+            rows.forEach((r, i) => { if (r === shotRow) idx = i; });
+            shot = localShots[idx];
+          }
+          if (!shot) {
+            console.warn('[绘画] 未找到对应镜头');
+            return;
+          }
+          openDrawPanel(shot.id, shot.number || shotNum);
+        });
+
+        // 刷新状态
+        refreshShotRow(shotRow);
+      }
+
+      // ── 刷新镜头行图标状态 ──
+      function refreshShotRow(shotRow) {
+        const btn = shotRow.querySelector('.s-hot-btn');
+        if (!btn) return;
+        // 从 DOM 中读取镜头编号
+        const numCell = shotRow.querySelector('.s-cell.s-num');
+        const shotNum = numCell ? parseInt(numCell.textContent.trim()) : null;
+        let shot = null;
+        if (shotNum) {
+          shot = localShots.find(s => s.number === shotNum);
+        }
+        if (!shot) {
+          // 降级：按行索引匹配
+          const rows = document.querySelectorAll('.shot-row:not(.new-shot-placeholder)');
+          let idx = 0;
+          rows.forEach((r, i) => { if (r === shotRow) idx = i; });
+          shot = localShots[idx];
+        }
+        if (!shot) return;
+        if (shot.image) {
+          btn.classList.add('saved');
+          btn.title = '编辑镜头画面';
+        } else {
+          btn.classList.remove('saved');
+          btn.title = '绘制此镜头画面';
+        }
+      }
+
+      // ── MutationObserver 监听镜头行出现 ──
+      const observer = new MutationObserver(() => {
+        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+      });
+      observer.observe(document.getElementById('app') || document.body, {
+        childList: true, subtree: true,
+      });
+
+      // ── 顶栏绘画按钮（通用绘画、不关联镜头） ──
+      function initHeader() {
         const headerRight = document.querySelector('.header .header-right');
-        if (!headerRight) return;
-        clearInterval(waitFor);
+        if (!headerRight) return false;
 
-        const drawPanel   = document.getElementById('drawPanel');
-        const canvas      = document.getElementById('draw-canvas');
-        const appEl       = document.getElementById('app');
-        if (!headerRight || !drawPanel || !canvas || !appEl) return;
-
-        const ctx = canvas.getContext('2d');
-        let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush';
-        let offscreen = document.createElement('canvas');
-
-        // ── 顶栏注入绘画按钮 ──
         const drawBtn = document.createElement('button');
         drawBtn.className = 'h-btn';
         drawBtn.innerHTML = '<span>✏️</span><span>绘画</span>';
-        drawBtn.title = '绘画板';
+        drawBtn.title = '自由绘画板（不关联镜头）';
         headerRight.insertBefore(drawBtn, headerRight.firstChild);
 
-        // ── 画布尺寸 ──
-        function resizeCanvas() {
-          const wrap = canvas.parentElement;
-          const rect = wrap.getBoundingClientRect();
-          const w = Math.round(rect.width), h = Math.round(rect.height);
-          if (canvas.width === w && canvas.height === h) return;
-          if (canvas.width > 0 && canvas.height > 0) {
-            const tmp = document.createElement('canvas');
-            tmp.width = canvas.width; tmp.height = canvas.height;
-            tmp.getContext('2d').drawImage(canvas, 0, 0);
-            offscreen = tmp;
-          }
-          canvas.width = w; canvas.height = h;
-          ctx.fillStyle = '#1a1a2e';
-          ctx.fillRect(0, 0, w, h);
-          if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0, w, h);
-        }
-
-        new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
-        setTimeout(resizeCanvas, 300);
-
-        // ── 坐标 ──
-        function getPos(e) {
-          const r = canvas.getBoundingClientRect();
-          const cx = e.touches ? e.touches[0].clientX : e.clientX;
-          const cy = e.touches ? e.touches[0].clientY : e.clientY;
-          return { x: (cx - r.left) * (canvas.width / r.width), y: (cy - r.top) * (canvas.height / r.height) };
-        }
-
-        function start(e) { e.preventDefault(); isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
-        function move(e) {
-          if (!isDrawing) return; e.preventDefault();
-          const p = getPos(e);
-          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-          if (tool === 'eraser') {
-            ctx.globalCompositeOperation = 'destination-out';
-            ctx.strokeStyle = 'rgba(0,0,0,1)';
-            ctx.lineWidth = parseInt(document.getElementById('drawSize').value) * 4;
-          } else {
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.strokeStyle = document.getElementById('drawColor').value;
-            ctx.lineWidth = parseInt(document.getElementById('drawSize').value);
-          }
-          ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
-          lastX = p.x; lastY = p.y;
-        }
-        function stop() { if (!isDrawing) return; isDrawing = false; ctx.globalCompositeOperation = 'source-over'; }
-
-        // 在画布绘制前将事件挂到 canvas 上
-        canvas.addEventListener('mousedown', start);
-        canvas.addEventListener('mousemove', move);
-        canvas.addEventListener('mouseup', stop);
-        canvas.addEventListener('mouseleave', stop);
-        canvas.addEventListener('touchstart', start, { passive: false });
-        canvas.addEventListener('touchmove', move, { passive: false });
-        canvas.addEventListener('touchend', stop);
-
-        // ── 打开绘画面板 ──
         drawBtn.addEventListener('click', () => {
-          appEl.style.display = 'none';
-          drawPanel.classList.add('open');
+          openDrawPanel(null, null);
           drawBtn.classList.add('draw-btn-active');
-          setTimeout(resizeCanvas, 100);
         });
 
-        // ── 返回分镜 ──
-        document.getElementById('drawBack').addEventListener('click', () => {
-          drawPanel.classList.remove('open');
-          appEl.style.display = '';
-          drawBtn.classList.remove('draw-btn-active');
-        });
+        return true;
+      }
 
-        // ── 工具 ──
-        const brushBtn  = document.getElementById('drawBrush');
-        const eraserBtn = document.getElementById('drawEraser');
-        brushBtn.addEventListener('click', () => { tool = 'brush'; brushBtn.classList.add('active'); eraserBtn.classList.remove('active'); canvas.style.cursor = 'crosshair'; });
-        eraserBtn.addEventListener('click', () => { tool = 'eraser'; eraserBtn.classList.add('active'); brushBtn.classList.remove('active'); canvas.style.cursor = 'cell'; });
+      // ── 等待 Vue 应用完全加载 ──
+      function waitForApp() {
+        if (initHeader()) {
+          console.log('[绘画] 已注入分镜工具');
+        } else {
+          setTimeout(waitForApp, 300);
+        }
+      }
+      waitForApp();
 
-        const sizeInput = document.getElementById('drawSize');
-        const sizeVal   = document.getElementById('drawSizeVal');
-        sizeInput.addEventListener('input', () => { sizeVal.textContent = sizeInput.value; });
+      // 初始延迟后尝试一次 injection
+      setTimeout(() => {
+        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+      }, 1000);
 
-        // ── 清空 ──
-        document.getElementById('drawClear').addEventListener('click', () => {
-          offscreen.width = 0; offscreen.height = 0;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#1a1a2e';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        });
-
-        // ── 导出 PNG ──
-        document.getElementById('drawExport').addEventListener('click', () => {
-          const link = document.createElement('a');
-          link.download = '分镜_' + new Date().toISOString().slice(0, 19).replace(/[:-]/g, '') + '.png';
-          link.href = canvas.toDataURL('image/png');
-          document.body.appendChild(link); link.click(); document.body.removeChild(link);
-        });
-
-        // ── 窗口 resize ──
-        window.addEventListener('resize', () => { if (drawPanel.classList.contains('open')) resizeCanvas(); });
-
-        console.log('[绘画] 已注入分镜工具');
-      }, 200);
     })();
     </script>
   </body>

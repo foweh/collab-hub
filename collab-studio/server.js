@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const DATA_DIR = path.join(__dirname, 'data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
+const FENJING_FILE = path.join(DATA_DIR, 'fenjing-state.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -39,6 +40,23 @@ function saveProjects() {
     }));
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) { console.error('[持久化] 写入失败', e.message); }
+}
+
+function loadFenjingState() {
+  try {
+    if (fs.existsSync(FENJING_FILE)) {
+      const raw = fs.readFileSync(FENJING_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (data && typeof data === 'object') return data;
+    }
+  } catch (e) { console.error('[分镜持久化] 读取失败', e.message); }
+  return null;
+}
+
+function saveFenjingState(state) {
+  try {
+    fs.writeFileSync(FENJING_FILE, JSON.stringify(state, null, 2), 'utf-8');
+  } catch (e) { console.error('[分镜持久化] 写入失败', e.message); }
 }
 
 // ─── 用户管理（密码/指纹/拉黑）────────────────────────
@@ -621,7 +639,7 @@ function broadcastPeers() {
 
 // ─── 分镜工具 namespace ────────────────────────────────────
 const fenjingNsp = io.of('/fenjing');
-let fenjingState = {
+let fenjingState = loadFenjingState() || {
   projectName: '未命名项目',
   scenes: [],
   shots: [],
@@ -637,6 +655,7 @@ fenjingNsp.on('connection', (socket) => {
   socket.on('fenjing:shots-update', (shots) => {
     fenjingState.shots = shots;
     socket.broadcast.emit('fenjing:shots-update', shots);
+    saveFenjingState(fenjingState);
     // 桥接到其他 collab-studio 节点
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
@@ -645,6 +664,7 @@ fenjingNsp.on('connection', (socket) => {
   socket.on('fenjing:scenes-update', (scenes) => {
     fenjingState.scenes = scenes;
     socket.broadcast.emit('fenjing:scenes-update', scenes);
+    saveFenjingState(fenjingState);
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
 
@@ -652,6 +672,7 @@ fenjingNsp.on('connection', (socket) => {
   socket.on('fenjing:project-rename', (name) => {
     fenjingState.projectName = name;
     socket.broadcast.emit('fenjing:project-rename', name);
+    saveFenjingState(fenjingState);
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
 });

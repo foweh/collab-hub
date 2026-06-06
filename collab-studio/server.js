@@ -139,6 +139,7 @@ function saveProjects() {
     id: p.id, type: p.type, name: p.name, data: p.data,
     createdAt: p.createdAt, updatedAt: p.updatedAt,
     owner: p.owner, parentId: p.parentId || undefined,
+    deleted: p.deleted || undefined, deletedAt: p.deletedAt || undefined,
   }));
   saveJSON(PROJECTS_FILE, data);
 }
@@ -500,8 +501,28 @@ io.on('connection', (socket) => {
   });
   socket.on('project-delete', (id) => {
     const p = projects.find(x => x.id === id);
-    projects = projects.filter(x => x.id !== id); socket.emit('project-deleted', id);
+    if (!p) return;
+    p.deleted = true; p.deletedAt = Date.now();
+    socket.emit('project-deleted', id);
     if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
+    broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
+  });
+  socket.on('project-restore', (id) => {
+    const p = projects.find(x => x.id === id);
+    if (!p) return;
+    p.deleted = false; delete p.deletedAt;
+    socket.emit('project-restored', id);
+    addLog(socket.id, socket.userName || SERVER_NAME, 'restored', p.type, p.name);
+    broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
+  });
+  socket.on('project-permanent-delete', (id) => {
+    if (!socket.isAdmin) return;
+    const p = projects.find(x => x.id === id);
+    projects = projects.filter(x => x.id !== id);
+    socket.emit('project-permanently-deleted', id);
+    if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'permanently deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     saveProjects();
   });

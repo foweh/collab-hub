@@ -323,6 +323,17 @@ socket.on('transfer-failed', (data) => {
   showAlert(`发送失败: ${data.reason}`, '发送失败', '❌');
 });
 
+socket.on('project-restored', (id) => {
+  const p = projects.find(x => x.id === id);
+  if (p) p.deleted = false;
+  renderProjects();
+});
+
+socket.on('project-permanently-deleted', (id) => {
+  projects = projects.filter(x => x.id !== id);
+  renderProjects();
+});
+
 // ── 扫描状态 ──
 socket.on('scan-state', (data) => {
   scanState = data.state;
@@ -523,68 +534,116 @@ $('#new-storyboard-btn').addEventListener('click', () => {
   });
 });
 
+// ─── 回收站按钮 ─────────────────────────────────────────
+$('#trash-btn').addEventListener('click', () => {
+  showingTrash = !showingTrash;
+  const btn = $('#trash-btn');
+  if (showingTrash) {
+    btn.textContent = '📂 项目';
+    btn.style.borderColor = 'var(--accent)';
+    document.querySelectorAll('#panel-projects .panel-actions > button:not(#trash-btn)').forEach(b => b.style.display = 'none');
+  } else {
+    btn.textContent = '🗑️';
+    btn.style.borderColor = '';
+    document.querySelectorAll('#panel-projects .panel-actions > button').forEach(b => b.style.display = '');
+  }
+  renderProjects();
+});
+
+
+let showingTrash = false;
 
 function renderProjects() {
   projectList.innerHTML = '';
-  if (projects.length === 0) {
-    projectList.innerHTML = '<div class="editor-placeholder">暂无项目，点击上方按钮创建</div>';
+
+  const visibleProjects = showingTrash
+    ? projects.filter(p => p.deleted)
+    : projects.filter(p => !p.deleted);
+
+  if (visibleProjects.length === 0) {
+    projectList.innerHTML = showingTrash
+      ? '<div class="editor-placeholder">回收站是空的</div>'
+      : '<div class="editor-placeholder">暂无项目，点击上方按钮创建</div>';
     return;
   }
-  // 先画文件夹，再画其他项目，同文件夹的项目折叠在文件夹内
-  const folders = projects.filter(p => p.type === 'folder');
-  const others = projects.filter(p => p.type !== 'folder');
-  // 找出有 parentId 的项目（归属文件夹的）
-  const withParent = others.filter(p => p.parentId);
-  const standalone = others.filter(p => !p.parentId);
-  // 渲染文件夹
-  folders.forEach(f => {
-    const card = document.createElement('div');
-    card.className = 'project-card folder';
-    const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
-    card.innerHTML = `
-      <span class="p-type">📁</span>
-      <button class="p-del" data-id="${f.id}">×</button>
-      <div class="p-name">${esc(cleanProjectName(f.name))}</div>
-      <div class="p-meta">文件夹 · ${childCount} 个项目 · ${timeAgo(f.updatedAt)}</div>
-      <div class="p-owner">${esc(f.owner || '我')}</div>
-    `;
-    card.querySelector('.p-del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
-        // 同时删除子项目
-        (f.data && f.data.children || []).forEach(cid => {
-          const idx = projects.findIndex(pp => pp.id === cid);
-          if (idx !== -1) {
-            projects.splice(idx, 1);
-            socket.emit('project-delete', cid);
-          }
-        });
-        socket.emit('project-delete', f.id);
-      }
+
+  if (!showingTrash) {
+    // 正常视图：先画文件夹，再画其他项目
+    const folders = visibleProjects.filter(p => p.type === 'folder');
+    const standalone = visibleProjects.filter(p => p.type !== 'folder' && !p.parentId);
+    // 渲染文件夹
+    folders.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'project-card folder';
+      const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
+      card.innerHTML = `
+        <span class="p-type">📁</span>
+        <button class="p-del" data-id="${f.id}">×</button>
+        <div class="p-name">${esc(cleanProjectName(f.name))}</div>
+        <div class="p-meta">文件夹 · ${childCount} 个项目 · ${timeAgo(f.updatedAt)}</div>
+        <div class="p-owner">${esc(f.owner || '我')}</div>
+      `;
+      card.querySelector('.p-del').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
+          (f.data && f.data.children || []).forEach(cid => socket.emit('project-delete', cid));
+          socket.emit('project-delete', f.id);
+        }
+      });
+      card.addEventListener('click', () => openProject(f));
+      projectList.appendChild(card);
     });
-    card.addEventListener('click', () => openProject(f));
-    projectList.appendChild(card);
-  });
-  // 渲染独立项目
-  standalone.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
-    const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹' };
-    const card = document.createElement('div');
-    card.className = 'project-card';
-    card.innerHTML = `
-      <span class="p-type">${icons[p.type] || '📄'}</span>
-      <button class="p-del" data-id="${p.id}">×</button>
-      <div class="p-name">${esc(cleanProjectName(p.name))}</div>
-      <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}</div>
-      <div class="p-owner">${esc(p.owner || '我')}</div>
-    `;
-    card.querySelector('.p-del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);
+    // 渲染独立项目
+    standalone.forEach(p => {
+      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
+      const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹' };
+      const card = document.createElement('div');
+      card.className = 'project-card';
+      card.innerHTML = `
+        <span class="p-type">${icons[p.type] || '📄'}</span>
+        <button class="p-del" data-id="${p.id}">×</button>
+        <div class="p-name">${esc(cleanProjectName(p.name))}</div>
+        <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}</div>
+        <div class="p-owner">${esc(p.owner || '我')}</div>
+      `;
+      card.querySelector('.p-del').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);
+      });
+      card.addEventListener('click', () => openProject(p));
+      projectList.appendChild(card);
     });
-    card.addEventListener('click', () => openProject(p));
-    projectList.appendChild(card);
-  });
+  } else {
+    // 回收站视图
+    visibleProjects.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+    visibleProjects.forEach(p => {
+      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
+      const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹' };
+      const card = document.createElement('div');
+      card.className = 'project-card trash';
+      card.innerHTML = `
+        <span class="p-type">${icons[p.type] || '📄'}</span>
+        <div class="p-name" style="color:var(--text-dim);text-decoration:line-through">${esc(cleanProjectName(p.name))}</div>
+        <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.deletedAt)} 前删除</div>
+        <div class="p-owner">${esc(p.owner || '我')}</div>
+        <div class="trash-actions" style="margin-top:6px;display:flex;gap:6px">
+          <button class="trash-restore-btn" data-id="${p.id}" style="padding:2px 10px;font-size:11px;background:var(--green);border:none;border-radius:4px;color:#000;cursor:pointer">↩ 恢复</button>
+          <button class="trash-del-btn" data-id="${p.id}" style="padding:2px 10px;font-size:11px;background:var(--danger);border:none;border-radius:4px;color:#fff;cursor:pointer">🗑️ 永久删除</button>
+        </div>
+      `;
+      card.querySelector('.trash-restore-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        socket.emit('project-restore', p.id);
+      });
+      card.querySelector('.trash-del-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (await showConfirm(`永久删除「${p.name}」？无法恢复！`, '永久删除', '⚠️')) {
+          socket.emit('project-permanent-delete', p.id);
+        }
+      });
+      projectList.appendChild(card);
+    });
+  }
   updateTransferList();
 }
 

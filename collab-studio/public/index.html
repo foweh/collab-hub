@@ -57,6 +57,10 @@
           <span class="nav-icon">🎬</span>
           <span class="nav-label">分镜</span>
         </button>
+        <button class="nav-btn" data-module="draw" title="绘画板">
+          <span class="nav-icon">✏️</span>
+          <span class="nav-label">绘画</span>
+        </button>
         <button class="nav-btn" data-module="devices" title="设备管理">
           <span class="nav-icon">💻</span>
           <span class="nav-label">设备</span>
@@ -179,6 +183,28 @@
             </div>
           </div>
           <div id="activity-log" class="module-body"></div>
+        </section>
+
+        <!-- 绘画板 -->
+        <section id="panel-draw" class="module-panel">
+          <div class="panel-header">
+            <h2>✏️ 绘画板</h2>
+            <div class="panel-actions">
+              <div class="draw-tools">
+                <button class="draw-tool-btn active" id="draw-brush" title="画笔">✏️</button>
+                <button class="draw-tool-btn" id="draw-eraser" title="橡皮">🧹</button>
+                <input type="color" id="draw-color" value="#ffffff" title="颜色">
+                <label class="draw-size-label">粗细</label>
+                <input type="range" id="draw-size" min="1" max="30" value="3" class="draw-slider">
+                <span id="draw-size-val" class="draw-size-num">3</span>
+              </div>
+              <button class="toolbar-btn" id="draw-clear">🗑️ 清空</button>
+              <button class="toolbar-btn primary" id="draw-export">⬇️ 导出 PNG</button>
+            </div>
+          </div>
+          <div class="draw-canvas-wrap">
+            <canvas id="draw-canvas"></canvas>
+          </div>
         </section>
       </main>
 
@@ -311,5 +337,6 @@
   <script src="/mindmap.js"></script>
   <script src="/story-editor.js"></script>
   <script src="/devices.js"></script>
+  <script src="/draw.js"></script>
 </body>
 </html>

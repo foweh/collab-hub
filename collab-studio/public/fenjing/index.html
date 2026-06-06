@@ -11,9 +11,191 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script type="module" crossorigin src="/fenjing/assets/index-DSxpk27Y.js"></script>
     <link rel="stylesheet" crossorigin href="/fenjing/assets/index-XptjBxIK.css">
-    <style>.header-tabs{display:none!important}</style>
+    <style>.header-tabs{display:none!important}
+.draw-panel{display:none;flex-direction:column;height:100%;width:100%;position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;background:var(--bg,#f8fafc)}
+.draw-panel.open{display:flex}
+.draw-tb{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card,#fff);border-bottom:1px solid var(--border,#e2e8f0);flex-shrink:0}
+.draw-tb-btn{width:32px;height:32px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);color:var(--text-secondary,#64748b);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.12s}
+.draw-tb-btn:hover{background:var(--bg-hover,#f1f5f9);color:var(--text,#0f172a)}
+.draw-tb-btn.active{border-color:#4f46e5;color:#4f46e5;background:#eef2ff}
+.draw-tb-sep{width:1px;height:20px;background:var(--border,#e2e8f0);flex-shrink:0}
+.draw-tb-color{width:30px;height:30px;padding:2px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer}
+.draw-tb-lbl{font-size:12px;color:var(--text-secondary,#64748b)}
+.draw-tb-rng{width:80px;height:4px;-webkit-appearance:none;appearance:none;background:var(--bg-hover,#f1f5f9);border-radius:2px;outline:none;cursor:pointer}
+.draw-tb-rng::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#4f46e5;cursor:pointer}
+.draw-tb-num{font-size:12px;color:var(--text-secondary,#64748b);min-width:18px;text-align:center}
+.draw-canvas-wrap{flex:1;overflow:hidden;background:#1a1a2e;position:relative}
+#draw-canvas{width:100%;height:100%;display:block;cursor:crosshair}
+.draw-panel .panel-header{padding:10px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.draw-panel .panel-header h2{font-size:16px;font-weight:700}
+.draw-back-btn{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:13px;color:var(--text-secondary,#64748b);transition:.12s}
+.draw-back-btn:hover{border-color:#4f46e5;color:#4f46e5}
+.draw-panel .panel-actions{display:flex;gap:8px}
+.draw-panel .panel-actions button{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:12px;transition:.12s}
+.draw-panel .panel-actions button:hover{border-color:#4f46e5}
+.draw-panel .panel-actions .primary{background:#4f46e5;color:#fff;border-color:#4f46e5}
+</style>
   </head>
   <body>
     <div id="app"></div>
+
+    <!-- 绘画面板（注入到分镜工具） -->
+    <div class="draw-panel" id="drawPanel">
+      <div class="panel-header">
+        <h2>✏️ 绘画板</h2>
+        <div class="panel-actions">
+          <button class="primary" id="drawExport">⬇️ 导出 PNG</button>
+        </div>
+      </div>
+      <div class="draw-tb">
+        <button class="draw-tb-btn active" id="drawBrush" title="画笔">✏️</button>
+        <button class="draw-tb-btn" id="drawEraser" title="橡皮">🧹</button>
+        <span class="draw-tb-sep"></span>
+        <input type="color" id="drawColor" value="#ffffff" class="draw-tb-color" title="颜色">
+        <span class="draw-tb-sep"></span>
+        <label class="draw-tb-lbl">粗细</label>
+        <input type="range" id="drawSize" min="1" max="30" value="3" class="draw-tb-rng">
+        <span class="draw-tb-num" id="drawSizeVal">3</span>
+        <span class="draw-tb-sep"></span>
+        <button class="draw-tb-btn" id="drawClear" title="清空">🗑️</button>
+        <button class="draw-back-btn" id="drawBack">← 返回分镜</button>
+      </div>
+      <div class="draw-canvas-wrap">
+        <canvas id="draw-canvas"></canvas>
+      </div>
+    </div>
+
+    <script>
+    // ─── 绘画功能注入 ──────────────────────────────────
+    (function() {
+      // 等待 Vue 应用挂载完毕，注入侧边栏按钮
+      const waitForSidebar = setInterval(() => {
+        const sideNav = document.querySelector('.side-nav');
+        if (!sideNav) return;
+        clearInterval(waitForSidebar);
+
+        const drawPanel   = document.getElementById('drawPanel');
+        const canvas      = document.getElementById('draw-canvas');
+        const appEl       = document.getElementById('app');
+        if (!sideNav || !drawPanel || !canvas || !appEl) return;
+
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush';
+        let offscreen = document.createElement('canvas');
+
+        // ── 添加侧边栏按钮 ──
+        const btn = document.createElement('button');
+        btn.className = 'side-btn';
+        btn.innerHTML = '<span class="side-icon">✏️</span><span class="side-label">绘画</span>';
+        btn.title = '绘画板';
+        sideNav.appendChild(btn);
+
+        // ── 画布尺寸 ──
+        function resizeCanvas() {
+          const wrap = canvas.parentElement;
+          const rect = wrap.getBoundingClientRect();
+          const w = Math.round(rect.width), h = Math.round(rect.height);
+          if (canvas.width === w && canvas.height === h) return;
+          if (canvas.width > 0 && canvas.height > 0) {
+            const tmp = document.createElement('canvas');
+            tmp.width = canvas.width; tmp.height = canvas.height;
+            tmp.getContext('2d').drawImage(canvas, 0, 0);
+            offscreen = tmp;
+          }
+          canvas.width = w; canvas.height = h;
+          ctx.fillStyle = '#1a1a2e';
+          ctx.fillRect(0, 0, w, h);
+          if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0, w, h);
+        }
+
+        new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
+        setTimeout(resizeCanvas, 300);
+
+        // ── 坐标 ──
+        function getPos(e) {
+          const r = canvas.getBoundingClientRect();
+          const cx = e.touches ? e.touches[0].clientX : e.clientX;
+          const cy = e.touches ? e.touches[0].clientY : e.clientY;
+          return { x: (cx - r.left) * (canvas.width / r.width), y: (cy - r.top) * (canvas.height / r.height) };
+        }
+
+        function start(e) { e.preventDefault(); isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
+        function move(e) {
+          if (!isDrawing) return; e.preventDefault();
+          const p = getPos(e);
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+          if (tool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.strokeStyle = 'rgba(0,0,0,1)';
+            ctx.lineWidth = parseInt(document.getElementById('drawSize').value) * 4;
+          } else {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = document.getElementById('drawColor').value;
+            ctx.lineWidth = parseInt(document.getElementById('drawSize').value);
+          }
+          ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+          lastX = p.x; lastY = p.y;
+        }
+        function stop() { if (!isDrawing) return; isDrawing = false; ctx.globalCompositeOperation = 'source-over'; }
+
+        // 在画布绘制前将事件挂到 canvas 上
+        canvas.addEventListener('mousedown', start);
+        canvas.addEventListener('mousemove', move);
+        canvas.addEventListener('mouseup', stop);
+        canvas.addEventListener('mouseleave', stop);
+        canvas.addEventListener('touchstart', start, { passive: false });
+        canvas.addEventListener('touchmove', move, { passive: false });
+        canvas.addEventListener('touchend', stop);
+
+        // ── 打开绘画面板 ──
+        btn.addEventListener('click', () => {
+          appEl.style.display = 'none';
+          drawPanel.classList.add('open');
+          setTimeout(resizeCanvas, 100);
+          // 取消其他侧边栏选中
+          document.querySelectorAll('.side-btn.active').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+
+        // ── 返回分镜 ──
+        document.getElementById('drawBack').addEventListener('click', () => {
+          drawPanel.classList.remove('open');
+          appEl.style.display = '';
+          btn.classList.remove('active');
+        });
+
+        // ── 工具 ──
+        const brushBtn  = document.getElementById('drawBrush');
+        const eraserBtn = document.getElementById('drawEraser');
+        brushBtn.addEventListener('click', () => { tool = 'brush'; brushBtn.classList.add('active'); eraserBtn.classList.remove('active'); canvas.style.cursor = 'crosshair'; });
+        eraserBtn.addEventListener('click', () => { tool = 'eraser'; eraserBtn.classList.add('active'); brushBtn.classList.remove('active'); canvas.style.cursor = 'cell'; });
+
+        const sizeInput = document.getElementById('drawSize');
+        const sizeVal   = document.getElementById('drawSizeVal');
+        sizeInput.addEventListener('input', () => { sizeVal.textContent = sizeInput.value; });
+
+        // ── 清空 ──
+        document.getElementById('drawClear').addEventListener('click', () => {
+          offscreen.width = 0; offscreen.height = 0;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#1a1a2e';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        });
+
+        // ── 导出 PNG ──
+        document.getElementById('drawExport').addEventListener('click', () => {
+          const link = document.createElement('a');
+          link.download = '分镜_' + new Date().toISOString().slice(0, 19).replace(/[:-]/g, '') + '.png';
+          link.href = canvas.toDataURL('image/png');
+          document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        });
+
+        // ── 窗口 resize ──
+        window.addEventListener('resize', () => { if (drawPanel.classList.contains('open')) resizeCanvas(); });
+
+        console.log('[绘画] 已注入分镜工具');
+      }, 200);
+    })();
+    </script>
   </body>
 </html>

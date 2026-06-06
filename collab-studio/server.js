@@ -47,7 +47,8 @@ let users = loadJSON(USERS_FILE, {});
 async function ensureAdminAccount() {
   if (users['热合曼']) {
     const ex = users['热合曼'];
-    if (ex.passwordHash && ex.passwordHash.length < 20) {
+    // 有旧版 SHA256 密码 (password) 但没有新版 bcrypt 哈希 -> 迁移
+    if ((ex.password && ex.password.length < 20) || (ex.passwordHash && ex.passwordHash.length < 20)) {
       const envPwd = process.env.ADMIN_PASSWORD || '';
       if (envPwd) {
         ex.passwordHash = await bcrypt.hash(envPwd, SALT_ROUNDS);
@@ -81,10 +82,12 @@ async function hashPwd(pwd) { return await bcrypt.hash(pwd || '', SALT_ROUNDS); 
 async function validatePassword(name, pwd) {
   if (!users[name]) return false;
   const record = users[name];
-  if (!record.passwordHash) return !pwd;
-  if (record.passwordHash.length < 20) {
+  // 用 passwordHash 优先，其次退回到旧 password 字段
+  const hashField = record.passwordHash || record.password;
+  if (!hashField) return !pwd;
+  if (hashField.length < 20) {
     const oldHash = crypto.createHash('sha256').update(pwd || '').digest('hex').slice(0, 16);
-    if (record.passwordHash === oldHash) {
+    if (hashField === oldHash) {
       record.passwordHash = await bcrypt.hash(pwd || '', SALT_ROUNDS);
       record.pwdLegacy = false;
       saveUsers();
@@ -92,7 +95,7 @@ async function validatePassword(name, pwd) {
     }
     return false;
   }
-  return await bcrypt.compare(pwd || '', record.passwordHash);
+  return await bcrypt.compare(pwd || '', hashField);
 }
 
 function isNameBanned(name) { return users[name] && users[name].isBanned; }

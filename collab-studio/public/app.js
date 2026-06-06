@@ -192,11 +192,12 @@ if (!savedAuth || !savedAuth.name) {
 let myName = savedAuth ? savedAuth.name : '';
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 let myRole = savedAuth ? (savedAuth.role || (isAdmin ? 'editor' : 'commenter')) : 'commenter';
+let myPassword = savedAuth ? savedAuth.password : '';
 
-// 连接后自动用已保存的身份登录（密码不保存）
+// 连接后自动用已保存的身份重新登录
 socket.on('connect', () => {
   if (myName) {
-    socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+    socket.emit('join', { name: myName, password: myPassword, fingerprint: myFingerprint });
   }
 });
 
@@ -235,7 +236,7 @@ socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
 
 socket.on('login-error', (msg) => {
   sessionStorage.removeItem('collab-auth');
-  showAlert('登录状态已过期，请重新登录', '请重新登录', '🔑');
+  showAlert(msg, '登录失败', '❌');
   setTimeout(() => { window.location.href = '/'; }, 2000);
 });
 

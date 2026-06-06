@@ -221,10 +221,11 @@
     }
 
     socket.on('login-success', ({ userName, isAdmin, hasPassword, role }) => {
-      // 保存登录凭证到 sessionStorage（不存明文密码）
+      // 保存登录凭证到 sessionStorage（会话级，关闭标签即清除）
       sessionStorage.setItem('collab-auth', JSON.stringify({
         name: userName,
         isAdmin: isAdmin,
+        password: loginPwd.value || '',
         role: role || (isAdmin ? 'editor' : 'commenter')
       }));
       // 保存用户名到 localStorage 以便下次自动填入

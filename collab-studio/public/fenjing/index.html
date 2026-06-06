@@ -30,6 +30,7 @@
 .draw-panel .panel-header h2{font-size:16px;font-weight:700}
 .draw-back-btn{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:13px;color:var(--text-secondary,#64748b);transition:.12s}
 .draw-back-btn:hover{border-color:#4f46e5;color:#4f46e5}
+.draw-btn-active{background:var(--accent-light,#eef2ff)!important;color:var(--accent,#4f46e5)!important;border-color:var(--accent,#4f46e5)!important}
 .draw-panel .panel-actions{display:flex;gap:8px}
 .draw-panel .panel-actions button{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:12px;transition:.12s}
 .draw-panel .panel-actions button:hover{border-color:#4f46e5}
@@ -68,27 +69,26 @@
     <script>
     // ─── 绘画功能注入 ──────────────────────────────────
     (function() {
-      // 等待 Vue 应用挂载完毕，注入侧边栏按钮
-      const waitForSidebar = setInterval(() => {
-        const sideNav = document.querySelector('.side-nav');
-        if (!sideNav) return;
-        clearInterval(waitForSidebar);
+      const waitFor = setInterval(() => {
+        const headerRight = document.querySelector('.header .header-right');
+        if (!headerRight) return;
+        clearInterval(waitFor);
 
         const drawPanel   = document.getElementById('drawPanel');
         const canvas      = document.getElementById('draw-canvas');
         const appEl       = document.getElementById('app');
-        if (!sideNav || !drawPanel || !canvas || !appEl) return;
+        if (!headerRight || !drawPanel || !canvas || !appEl) return;
 
         const ctx = canvas.getContext('2d');
         let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush';
         let offscreen = document.createElement('canvas');
 
-        // ── 添加侧边栏按钮 ──
-        const btn = document.createElement('button');
-        btn.className = 'side-btn';
-        btn.innerHTML = '<span class="side-icon">✏️</span><span class="side-label">绘画</span>';
-        btn.title = '绘画板';
-        sideNav.appendChild(btn);
+        // ── 顶栏注入绘画按钮 ──
+        const drawBtn = document.createElement('button');
+        drawBtn.className = 'h-btn';
+        drawBtn.innerHTML = '<span>✏️</span><span>绘画</span>';
+        drawBtn.title = '绘画板';
+        headerRight.insertBefore(drawBtn, headerRight.firstChild);
 
         // ── 画布尺寸 ──
         function resizeCanvas() {
@@ -148,20 +148,18 @@
         canvas.addEventListener('touchend', stop);
 
         // ── 打开绘画面板 ──
-        btn.addEventListener('click', () => {
+        drawBtn.addEventListener('click', () => {
           appEl.style.display = 'none';
           drawPanel.classList.add('open');
+          drawBtn.classList.add('draw-btn-active');
           setTimeout(resizeCanvas, 100);
-          // 取消其他侧边栏选中
-          document.querySelectorAll('.side-btn.active').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
         });
 
         // ── 返回分镜 ──
         document.getElementById('drawBack').addEventListener('click', () => {
           drawPanel.classList.remove('open');
           appEl.style.display = '';
-          btn.classList.remove('active');
+          drawBtn.classList.remove('draw-btn-active');
         });
 
         // ── 工具 ──

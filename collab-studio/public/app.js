@@ -405,13 +405,6 @@ navBtns.forEach(btn => {
   });
 });
 
-// 分镜导航按钮（不走 data-module 模式）
-document.getElementById('nav-storyboard').addEventListener('click', () => {
-  navBtns.forEach(b => b.classList.remove('active'));
-  document.getElementById('nav-storyboard').classList.add('active');
-  panels.forEach(p => p.classList.remove('active'));
-  document.getElementById('panel-storyboard').classList.add('active');
-});
 
 function initUI() {
   if (projects.length === 0) {

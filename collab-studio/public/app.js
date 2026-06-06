@@ -234,12 +234,6 @@ socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
 });
 
 socket.on('login-error', (msg) => {
-  // 管理员免密登录失败 → 显示密码输入框，不跳转
-  if (isAdmin && msg === '管理员密码错误') {
-    showAdminPasswordPrompt();
-    return;
-  }
-  // 登录失败，清除凭证并跳转到登录页
   sessionStorage.removeItem('collab-auth');
   showAlert(msg, '登录失败', '❌');
   setTimeout(() => { window.location.href = '/'; }, 2000);

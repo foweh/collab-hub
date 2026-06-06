@@ -162,9 +162,9 @@ socket.on('admin-incoming-msg', (msg) => {
 // 显示/隐藏联系管理员和管理面板
 function updateUIBasedOnRole() {
   const contactSection = document.getElementById('contact-admin-section');
-  const adminPanel = document.getElementById('admin-panel');
+  const adminNavBtn = document.getElementById('nav-admin-btn');
   if (contactSection) contactSection.style.display = isAdmin ? 'none' : 'block';
-  if (adminPanel) adminPanel.style.display = isAdmin ? 'block' : 'none';
+  if (adminNavBtn) adminNavBtn.style.display = isAdmin ? '' : 'none';
   // 更新自我标识上的角色图标
   if (selfBadge) {
     const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
@@ -212,7 +212,9 @@ socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
   else selfBadge.className = 'badge';
   updateUIBasedOnRole();
   initUI();
-  if (isAdmin) renderAdminPanel();
+  if (isAdmin) {
+    // 数据在点击管理按钮时加载
+  }
   
   // 绑定联系管理员事件
   const contactBtn = document.getElementById('contact-admin-btn');
@@ -402,6 +404,11 @@ navBtns.forEach(btn => {
       }, 100);
     }
     if (mod === 'devices') setTimeout(() => window.renderDevices && window.renderDevices(), 100);
+    if (mod === 'admin') {
+      if (window.setAnnotationDocument) window.setAnnotationDocument(null);
+      socket.emit('admin-get-stats');
+      socket.emit('admin-list-users');
+    }
   });
 });
 
@@ -1117,7 +1124,7 @@ document.getElementById('log-clear-btn').addEventListener('click', () => {
 });
 
 // ─── 返回项目列表 ────────────────────────────────────────
-document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back').forEach(btn => {
+document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back, #admin-back').forEach(btn => {
   btn.addEventListener('click', () => {
     navBtns.forEach(b => b.classList.remove('active'));
     panels.forEach(p => p.classList.remove('active'));

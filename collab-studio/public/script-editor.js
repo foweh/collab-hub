@@ -258,9 +258,9 @@ function bindEvents() {
 
   // 删幕
   container.querySelectorAll('.del-act-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const ai = parseInt(btn.dataset.ai);
-      if (confirm('删除此幕？')) {
+      if (await showConfirm('删除此幕？此操作不可恢复。', '删除确认', '🗑️')) {
         currentProject.data.acts.splice(ai, 1);
         renderScript(); saveData();
       }
@@ -285,9 +285,9 @@ function bindEvents() {
 
   // 删场
   container.querySelectorAll('.del-scene-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const ai = parseInt(btn.dataset.ai), si = parseInt(btn.dataset.si);
-      if (confirm('删除此场？')) {
+      if (await showConfirm('删除此场？此操作不可恢复。', '删除确认', '🗑️')) {
         currentProject.data.acts[ai].scenes.splice(si, 1);
         renderScript(); saveData();
       }

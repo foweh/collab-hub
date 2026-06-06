@@ -17,6 +17,7 @@
         <input type="text" id="name-input" placeholder="你的名字..." maxlength="12" autofocus>
         <button id="join-btn">进入工作室</button>
       </div>
+      <input type="password" id="pwd-input" placeholder="管理员密码..." maxlength="20" style="display:none;margin-top:8px;width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);color:var(--text);font-size:14px;outline:none">
     </div>
   </div>
 
@@ -90,6 +91,8 @@
           <div class="panel-header">
             <h2>📂 我的项目</h2>
             <div class="panel-actions">
+              <button class="toolbar-btn primary" id="new-shooting-plan-btn">📋 拍摄计划</button>
+              <button class="toolbar-btn" id="new-folder-btn">📁 文件夹</button>
               <button class="toolbar-btn" id="new-script-btn">+ 剧本</button>
               <button class="toolbar-btn" id="new-mindmap-btn">+ 思维导图</button>
               <button class="toolbar-btn" id="new-story-btn">+ 故事</button>
@@ -266,6 +269,29 @@
       <p id="receive-info"></p>
       <div id="receive-list"></div>
       <button class="toolbar-btn" id="receive-ok">知道了</button>
+    </div>
+  </div>
+
+  <!-- ─── 自定义 alert 弹窗 ─── -->
+  <div id="alert-modal" class="modal-overlay" style="display:none">
+    <div class="alert-card">
+      <div class="alert-icon" id="alert-icon">ℹ️</div>
+      <div class="alert-title" id="alert-title">提示</div>
+      <div class="alert-text" id="alert-text"></div>
+      <button class="alert-btn" id="alert-ok">知道了</button>
+    </div>
+  </div>
+
+  <!-- ─── 自定义 confirm 弹窗 ─── -->
+  <div id="confirm-modal" class="modal-overlay" style="display:none">
+    <div class="alert-card">
+      <div class="alert-icon" id="confirm-icon">❓</div>
+      <div class="alert-title" id="confirm-title">确认操作</div>
+      <div class="alert-text" id="confirm-text"></div>
+      <div class="confirm-actions">
+        <button class="confirm-btn cancel" id="confirm-cancel">取消</button>
+        <button class="confirm-btn ok" id="confirm-ok">确认</button>
+      </div>
     </div>
   </div>
 

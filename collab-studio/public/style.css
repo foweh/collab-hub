@@ -53,6 +53,11 @@ body {
   font-size: 16px;
   outline: none;
 }
+.join-input-group input[type="password"] {
+  margin-top: 0;
+  font-size: 14px;
+  padding: 10px 16px;
+}
 .join-input-group input:focus { border-color: var(--accent); }
 .join-input-group button {
   padding: 12px 28px;
@@ -294,6 +299,18 @@ body {
   padding: 0 4px;
 }
 .project-card .p-del:hover { color: var(--danger); }
+
+/* ─── 文件夹卡片：金色边框 ─── */
+.project-card.folder {
+  border-color: #c8a84e;
+  background: linear-gradient(135deg, var(--surface2) 0%, #2a2518 100%);
+}
+.project-card.folder:hover {
+  border-color: #ffd700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.15);
+}
+.project-card.folder .p-type { color: #ffd700; }
+.project-card.folder .p-meta { color: #c8a84e; }
 
 /* ─── 设备卡片 ─── */
 .device-grid { display: flex; flex-direction: column; gap: 8px; }
@@ -608,6 +625,80 @@ body {
   border-radius: 4px;
   margin-bottom: 4px;
   font-size: 13px;
+}
+
+/* ─── 自定义 alert 弹窗 ─── */
+.alert-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px 40px 28px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  text-align: center;
+  animation: alertFadeIn 0.2s ease-out;
+}
+@keyframes alertFadeIn {
+  from { transform: scale(0.92); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+.alert-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+.alert-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.alert-text {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  word-break: break-word;
+}
+.alert-btn {
+  padding: 9px 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #000;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.alert-btn:hover { opacity: 0.85; }
+
+/* ─── 自定义 confirm ─── */
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.confirm-btn {
+  flex: 1;
+  padding: 9px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.confirm-btn:hover { opacity: 0.85; }
+.confirm-btn.cancel {
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.confirm-btn.ok {
+  background: var(--accent);
+  color: #000;
 }
 
 /* ─── 在线用户 ─── */

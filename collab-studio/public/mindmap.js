@@ -707,7 +707,7 @@ function onContextMenu(e) {
       { sep: true },
       { icon: '−', label: '缩小', action: zoomOut },
       { icon: '+', label: '放大', action: zoomIn },
-      { icon: '🗑', label: '清空导图', action: () => { if (confirm('清空所有节点？')) { pushUndo(); nodes = []; edges = []; selectedIds.clear(); render(); saveData(); } } },
+      { icon: '🗑', label: '清空导图', action: async () => { if (await showConfirm('清空所有节点？', '清空确认', '🗑️')) { pushUndo(); nodes = []; edges = []; selectedIds.clear(); render(); saveData(); } } },
     ];
     buildContextMenu(items, e);
     return;

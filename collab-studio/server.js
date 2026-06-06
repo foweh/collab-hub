@@ -35,6 +35,7 @@ function saveProjects() {
       data: p.data,
       createdAt: p.createdAt, updatedAt: p.updatedAt,
       owner: p.owner,
+      parentId: p.parentId || undefined,
     }));
     fs.writeFileSync(PROJECTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (e) { console.error('[持久化] 写入失败', e.message); }
@@ -353,7 +354,9 @@ io.on('connection', (socket) => {
   });
   socket.on('set-server-name', (name) => {
     SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; broadcastDiscover();
-    for (const [sid, p] of peers) p.socket.emit('bridge-msg', { type: 'peer-rename', serverId: SERVER_ID, name: SERVER_NAME });
+    for (const [sid, p] of peers) {
+      if (p && p.socket) p.socket.emit('bridge-msg', { type: 'peer-rename', serverId: SERVER_ID, name: SERVER_NAME });
+    }
   });
   socket.on('lan-toggle', (on) => {
     if (on && scanState === 'idle') { startScan(); broadcastDiscover(); scanInterval = setInterval(broadcastDiscover, 5000); }
@@ -373,6 +376,25 @@ io.on('connection', (socket) => {
     const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME };
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
+    broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
+    saveProjects();
+  });
+  // ── 批量创建（文件夹 + 子项目） ──
+  socket.on('project-create-batch', (data) => {
+    const { name, children } = data;
+    if (!name) return;
+    const folder = { id: uuid().slice(0, 12), type: 'folder', name, data: { children: [] }, createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME };
+    projects.push(folder);
+    socket.emit('project-created', folder);
+    addLog(socket.id, socket.userName || SERVER_NAME, 'created', 'folder', folder.name);
+    const created = [folder];
+    (children || []).forEach(c => {
+      const child = { id: uuid().slice(0, 12), type: c.type, name: c.name || '未命名', data: getDefaultData(c.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME, parentId: folder.id };
+      projects.push(child);
+      socket.emit('project-created', child);
+      created.push(child);
+      folder.data.children.push(child.id);
+    });
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     saveProjects();
   });
@@ -489,6 +511,7 @@ io.on('connection', (socket) => {
   
   // ── 用户发消息给管理员 ──
   socket.on('user-message-to-admin', (text) => {
+    if (!socket.userName) return; // 未登录不发
     const name = socket.userName || '未知';
     const msg = { from: name, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
@@ -512,6 +535,7 @@ io.on('connection', (socket) => {
 
 // ─── 桥接消息处理 ────────────────────────────────────────
 function handleBridgeMessage(fromId, msg) {
+  try {
   switch (msg.type) {
     case 'projects-sync':
       mergeProjects(msg.projects);
@@ -557,6 +581,7 @@ function handleBridgeMessage(fromId, msg) {
       }
       break;
   }
+  } catch (e) { console.error('[桥接] 处理消息异常:', e.message); }
 }
 
 // ─── 工具函数 ────────────────────────────────────────────
@@ -639,6 +664,7 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'folder': return { children: [] };
     default: return {};
   }
 }
@@ -712,6 +738,15 @@ function autoJoin() {
   // serverId 未知，传 null；connectToPeer 会在 handshake-ack 中获得对方的 serverId
   connectToPeer(null, host, host, port);
 }
+
+// ─── 全局异常兜底 ──────────────────────────────────────────
+process.on('uncaughtException', (err) => {
+  console.error('[崩溃] 未捕获异常:', err.message);
+  console.error(err.stack);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[崩溃] 未处理的 Promise 拒绝:', reason);
+});
 
 // ─── 启动 ────────────────────────────────────────────────
 server.listen(HTTP_PORT, '0.0.0.0', () => {

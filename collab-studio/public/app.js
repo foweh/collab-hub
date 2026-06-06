@@ -211,6 +211,15 @@ const savedPwd  = localStorage.getItem('collab-user-pwd');
 if (savedName) { nameInput.value = savedName; }
 if (savedPwd)  { pwdInput.value  = savedPwd; }
 
+// 管理员名字输入时显示密码框
+nameInput.addEventListener('input', () => {
+  pwdInput.style.display = (nameInput.value.trim() === '热合曼') ? 'block' : 'none';
+});
+// 初始检查
+setTimeout(() => {
+  if (nameInput.value.trim() === '热合曼') pwdInput.style.display = 'block';
+}, 100);
+
 joinBtn.addEventListener('click', join);
 nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
 pwdInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
@@ -243,11 +252,11 @@ socket.on('login-success', ({ userName, isAdmin: admin }) => {
 });
 
 socket.on('login-error', (msg) => {
-  alert(msg);
+  showAlert(msg, '登录失败', '❌');
 });
 
 socket.on('kicked', (msg) => {
-  alert(msg);
+  showAlert(msg, '已被踢出', '🚫');
   location.reload();
 });
 
@@ -305,11 +314,11 @@ socket.on('project-deleted', (id) => {
 });
 
 socket.on('transfer-sent', (data) => {
-  alert(`✅ ${data.count} 个项目已发送给 ${data.to}`);
+  showAlert(`${data.count} 个项目已发送给 ${data.to}`, '发送成功', '✅');
 });
 
 socket.on('transfer-failed', (data) => {
-  alert(`❌ 发送失败: ${data.reason}`);
+  showAlert(`发送失败: ${data.reason}`, '发送失败', '❌');
 });
 
 // ── 扫描状态 ──
@@ -388,6 +397,7 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'folder': return { children: [] };
     default: return {};
   }
 }
@@ -408,6 +418,23 @@ $('#new-story-btn').addEventListener('click', () => {
   const name = prompt('故事名称:', '新故事');
   if (name) socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') });
 });
+$('#new-folder-btn').addEventListener('click', () => {
+  const name = prompt('文件夹名称:', '新文件夹');
+  if (name) socket.emit('project-create', { type: 'folder', name, data: getDefaultData('folder') });
+});
+$('#new-shooting-plan-btn').addEventListener('click', () => {
+  const name = prompt('拍摄计划名称:', '新拍摄计划');
+  if (name) {
+    socket.emit('project-create-batch', {
+      name,
+      children: [
+        { type: 'script', name: name + ' - 剧本' },
+        { type: 'mindmap', name: name + ' - 思维导图' },
+        { type: 'story', name: name + ' - 故事' },
+      ]
+    });
+  }
+});
 
 
 function renderProjects() {
@@ -416,9 +443,45 @@ function renderProjects() {
     projectList.innerHTML = '<div class="editor-placeholder">暂无项目，点击上方按钮创建</div>';
     return;
   }
-  projects.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖' };
-    const names = { script: '剧本', mindmap: '思维导图', story: '故事' };
+  // 先画文件夹，再画其他项目，同文件夹的项目折叠在文件夹内
+  const folders = projects.filter(p => p.type === 'folder');
+  const others = projects.filter(p => p.type !== 'folder');
+  // 找出有 parentId 的项目（归属文件夹的）
+  const withParent = others.filter(p => p.parentId);
+  const standalone = others.filter(p => !p.parentId);
+  // 渲染文件夹
+  folders.forEach(f => {
+    const card = document.createElement('div');
+    card.className = 'project-card folder';
+    const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
+    card.innerHTML = `
+      <span class="p-type">📁</span>
+      <button class="p-del" data-id="${f.id}">×</button>
+      <div class="p-name">${esc(cleanProjectName(f.name))}</div>
+      <div class="p-meta">文件夹 · ${childCount} 个项目 · ${timeAgo(f.updatedAt)}</div>
+      <div class="p-owner">${esc(f.owner || '我')}</div>
+    `;
+    card.querySelector('.p-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
+        // 同时删除子项目
+        (f.data && f.data.children || []).forEach(cid => {
+          const idx = projects.findIndex(pp => pp.id === cid);
+          if (idx !== -1) {
+            projects.splice(idx, 1);
+            socket.emit('project-delete', cid);
+          }
+        });
+        socket.emit('project-delete', f.id);
+      }
+    });
+    card.addEventListener('click', () => openProject(f));
+    projectList.appendChild(card);
+  });
+  // 渲染独立项目
+  standalone.forEach(p => {
+    const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
+    const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹' };
     const card = document.createElement('div');
     card.className = 'project-card';
     card.innerHTML = `
@@ -428,9 +491,9 @@ function renderProjects() {
       <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}</div>
       <div class="p-owner">${esc(p.owner || '我')}</div>
     `;
-    card.querySelector('.p-del').addEventListener('click', (e) => {
+    card.querySelector('.p-del').addEventListener('click', async (e) => {
       e.stopPropagation();
-      if (confirm(`删除「${p.name}」？`)) socket.emit('project-delete', p.id);
+      if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);
     });
     card.addEventListener('click', () => openProject(p));
     projectList.appendChild(card);
@@ -441,6 +504,32 @@ function renderProjects() {
 function openProject(p) {
   navBtns.forEach(b => b.classList.remove('active'));
   panels.forEach(pl => pl.classList.remove('active'));
+  // 文件夹：展开显示子项目
+  if (p.type === 'folder') {
+    const panel = document.getElementById('panel-projects');
+    panel.classList.add('active');
+    document.querySelector(`.nav-btn[data-module="projects"]`).classList.add('active');
+    // 高亮该文件夹的子项目
+    const children = p.data && p.data.children || [];
+    renderProjects();
+    // 滚动到子项目并标记
+    if (children.length > 0) {
+      setTimeout(() => {
+        const cards = projectList.querySelectorAll('.project-card');
+        cards.forEach(c => {
+          const nameEl = c.querySelector('.p-name');
+          if (nameEl) {
+            const child = projects.find(pp => children.includes(pp.id));
+            if (child && nameEl.textContent.includes(cleanProjectName(child.name).slice(0, 6))) {
+              c.style.borderColor = 'var(--accent)';
+              c.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+        });
+      }, 100);
+    }
+    return;
+  }
   const panel = document.getElementById(`panel-${p.type}`);
   if (panel) {
     panel.classList.add('active');
@@ -550,7 +639,7 @@ function updateTransferList() {
 
   // 项目选择
   projects.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖' };
+    const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
     const item = document.createElement('div');
     item.className = 'transfer-item';
     item.innerHTML = `<input type="checkbox" class="transfer-cb" value="${p.id}"><span>${icons[p.type] || '📄'} ${esc(p.name)}</span>`;
@@ -565,15 +654,15 @@ function updateTransferBtn() {
   transferBtn.disabled = checked.length === 0;
 }
 
-transferBtn.addEventListener('click', () => {
+transferBtn.addEventListener('click', async () => {
   const checked = document.querySelectorAll('.transfer-cb:checked');
   if (checked.length === 0) return;
   const ids = Array.from(checked).map(cb => cb.value);
   const target = document.getElementById('transfer-target');
   const targetServerId = target ? target.value : (peers[0] ? peers[0].serverId : null);
-  if (!targetServerId) return alert('没有可发送的目标');
+  if (!targetServerId) return showAlert('没有可发送的目标', '提示', '⚠️');
   const targetName = peers.find(p => p.serverId === targetServerId)?.name || '对方';
-  if (confirm(`发送 ${ids.length} 个项目给 ${targetName}？`)) {
+  if (await showConfirm(`发送 ${ids.length} 个项目给 ${targetName}？`, '发送确认', '📤')) {
     socket.emit('project-transfer', { ids, targetServerId });
   }
 });
@@ -583,7 +672,7 @@ function showReceiveModal(msg) {
   receiveInfo.textContent = `${esc(msg.from)} 给你发了 ${msg.projects.length} 个项目：`;
   receiveList.innerHTML = '';
   msg.projects.forEach(p => {
-    const icons = { script: '📜', mindmap: '🧠', story: '📖' };
+    const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
     const div = document.createElement('div');
     div.className = 'rp-item';
     div.textContent = `${icons[p.type] || '📄'} ${p.name}`;
@@ -611,6 +700,58 @@ function timeAgo(ts) {
   if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
   return `${Math.floor(diff / 86400000)} 天前`;
+}
+
+// ─── 自定义 alert ────────────────────────────────────────
+const alertModal    = document.getElementById('alert-modal');
+const alertIcon     = document.getElementById('alert-icon');
+const alertTitle    = document.getElementById('alert-title');
+const alertText     = document.getElementById('alert-text');
+const alertOk       = document.getElementById('alert-ok');
+
+function showAlert(text, title, icon) {
+  alertTitle.textContent  = title || '提示';
+  alertIcon.textContent   = icon || 'ℹ️';
+  alertText.textContent   = text;
+  alertModal.style.display = 'flex';
+  // 点击外部关闭
+  alertModal.onclick = (e) => {
+    if (e.target === alertModal) alertModal.style.display = 'none';
+  };
+}
+
+alertOk.addEventListener('click', () => {
+  alertModal.style.display = 'none';
+});
+
+// ─── 自定义 confirm ──────────────────────────────────────
+const confirmModal   = document.getElementById('confirm-modal');
+const confirmIcon    = document.getElementById('confirm-icon');
+const confirmTitle   = document.getElementById('confirm-title');
+const confirmText    = document.getElementById('confirm-text');
+const confirmOk      = document.getElementById('confirm-ok');
+const confirmCancel  = document.getElementById('confirm-cancel');
+
+function showConfirm(text, title, icon) {
+  return new Promise((resolve) => {
+    confirmTitle.textContent = title || '确认操作';
+    confirmIcon.textContent  = icon || '❓';
+    confirmText.textContent  = text;
+    confirmModal.style.display = 'flex';
+
+    const cleanup = () => {
+      confirmModal.style.display = 'none';
+      confirmOk.onclick = null;
+      confirmCancel.onclick = null;
+      confirmModal.onclick = null;
+    };
+
+    confirmOk.onclick = () => { cleanup(); resolve(true); };
+    confirmCancel.onclick = () => { cleanup(); resolve(false); };
+    confirmModal.onclick = (e) => {
+      if (e.target === confirmModal) { cleanup(); resolve(false); }
+    };
+  });
 }
 
 // ─── 模块注册 ────────────────────────────────────────────
@@ -704,10 +845,11 @@ socket.on('admin-users-list', (list) => {
   
   // 修改密码
   tbody.querySelectorAll('.admin-pwd-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const inp = btn.parentElement.querySelector('.admin-new-pwd');
       const pwd = inp.value.trim();
-      if (!pwd || !confirm(`将 ${btn.dataset.name} 的密码改为 "${pwd}"？`)) return;
+      if (!pwd) return;
+      if (!await showConfirm(`将 ${btn.dataset.name} 的密码改为 "${pwd}"？`, '修改密码', '🔑')) return;
       socket.emit('admin-change-password', { targetName: btn.dataset.name, newPassword: pwd });
       inp.value = '';
     };
@@ -715,18 +857,18 @@ socket.on('admin-users-list', (list) => {
   
   // 拉黑
   tbody.querySelectorAll('.admin-ban-btn').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const name = btn.dataset.name;
       const fp = btn.dataset.fp;
-      if (!confirm(`拉黑 ${name}？${fp ? '（同时拉黑该设备所有账号）' : ''}`)) return;
+      if (!await showConfirm(`拉黑 ${name}？${fp ? '（同时拉黑该设备所有账号）' : ''}`, '拉黑确认', '🚫')) return;
       socket.emit('admin-ban-user', { targetName: name, fingerprint: fp || undefined });
     };
   });
   
   // 解禁
   tbody.querySelectorAll('.admin-unban-btn').forEach(btn => {
-    btn.onclick = () => {
-      if (!confirm(`解禁 ${btn.dataset.name}？`)) return;
+    btn.onclick = async () => {
+      if (!await showConfirm(`解禁 ${btn.dataset.name}？`, '解禁确认', '✅')) return;
       socket.emit('admin-unban-user', { targetName: btn.dataset.name });
     };
   });
@@ -753,7 +895,7 @@ function renderActivityLog() {
   });
 }
 function formatLog(entry) {
-  const mi = { script: '📜', mindmap: '🧠', story: '📖', system: '⚙️' };
+  const mi = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁', system: '⚙️' };
   const m = mi[entry.module] || '';
   switch (entry.action) {
     case 'joined': return '加入了协作';

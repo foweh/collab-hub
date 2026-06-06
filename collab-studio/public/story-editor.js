@@ -53,7 +53,7 @@ function renderChapters() {
     const delBtn = div.querySelector('.ch-del');
     delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (data.chapters.length <= 1) return alert('至少保留一个章节');
+      if (data.chapters.length <= 1) return showAlert('至少保留一个章节', '提示', '⚠️');
       data.chapters.splice(i, 1);
       if (currentChapterIdx >= data.chapters.length) currentChapterIdx = data.chapters.length - 1;
       renderChapters();
@@ -78,7 +78,7 @@ storyTextarea.addEventListener('focus', () => {
   const lockId = `ch_${currentChapterIdx}`;
   if (isLocked('story-content', lockId)) {
     storyTextarea.blur();
-    alert(`🔒 ${getLockUser('story-content', lockId)} 正在编辑本章`);
+    showAlert(`🔒 ${getLockUser('story-content', lockId)} 正在编辑本章`, '编辑中', '✏️');
     return;
   }
   acquireLock('story-content', lockId);
@@ -94,7 +94,7 @@ window.addEventListener('locks-changed', () => {
     const user = getLockUser('story-content', lockId);
     if (user && user !== myName) {
       storyTextarea.blur();
-      alert(`🔒 ${user} 正在编辑本章`);
+      showAlert(`🔒 ${user} 正在编辑本章`, '编辑中', '✏️');
     }
   }
 });

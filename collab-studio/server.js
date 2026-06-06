@@ -44,7 +44,7 @@ let SERVER_NAME = os.hostname();
 // ─── 用户管理 ────────────────────────────────────────────
 let users = loadJSON(USERS_FILE, {});
 
-const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || '26275265';
 
 async function ensureAdminAccount() {
   if (users['热合曼']) {
@@ -1054,8 +1054,8 @@ function startServer(port) {
     console.log('║  自动发现并组建协作网络                  ║');
   }
   console.log('╠══════════════════════════════════════════╣');
-  console.log(`║  👑 管理员: 热合曼                        ║`);
-  console.log(`║  🔑 密码:    ${ADMIN_DEFAULT_PASSWORD.padEnd(28)}║`);
+  console.log('║  👑 管理员: 热合曼                        ║');
+  console.log('║  🔑 密码: 已设置（登录页输入）            ║');
   console.log('║  💡 登录后可在右侧面板修改密码           ║');
   console.log('╚══════════════════════════════════════════╝');
   });

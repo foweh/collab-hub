@@ -340,6 +340,32 @@ socket.on('project-permanently-deleted', (id) => {
   renderProjects();
 });
 
+// ── 子项变更 ──
+socket.on('project-item-added', ({ projectId, item }) => {
+  const p = projects.find(x => x.id === projectId);
+  if (p) {
+    if (!p.data.items) p.data.items = [];
+    p.data.items.push(item);
+    p.updatedAt = Date.now();
+  }
+  if (currentDetailProject && currentDetailProject.id === projectId) {
+    renderProjectDetail(currentDetailProject);
+  }
+  renderProjects();
+});
+
+socket.on('project-item-removed', ({ projectId, itemId }) => {
+  const p = projects.find(x => x.id === projectId);
+  if (p && p.data.items) {
+    p.data.items = p.data.items.filter(it => it.id !== itemId);
+    p.updatedAt = Date.now();
+  }
+  if (currentDetailProject && currentDetailProject.id === projectId) {
+    renderProjectDetail(currentDetailProject);
+  }
+  renderProjects();
+});
+
 // ── 可见性变更 ──
 socket.on('project-visibility-changed', ({ projectId, visibility }) => {
   const p = projects.find(x => x.id === projectId);
@@ -487,71 +513,38 @@ createInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeCreateModal();
 });
 
-$('#new-script-btn').addEventListener('click', () => {
+// 新建项目按钮
+$('#new-project-btn').addEventListener('click', () => {
   showCreateModal({
-    icon: '📜', title: '新建剧本', hint: '创建一个新的空白剧本项目。',
-    placeholder: '输入剧本名称...', defaultName: '新剧本',
-    callback: (name) => socket.emit('project-create', { type: 'script', name, data: getDefaultData('script') }),
-  });
-});
-$('#new-mindmap-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '🧠', title: '新建思维导图', hint: '创建一个新的空白思维导图项目。',
-    placeholder: '输入思维导图名称...', defaultName: '新思维导图',
-    callback: (name) => socket.emit('project-create', { type: 'mindmap', name, data: getDefaultData('mindmap') }),
-  });
-});
-$('#new-story-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '📖', title: '新建故事', hint: '创建一个新的空白故事项目。',
-    placeholder: '输入故事名称...', defaultName: '新故事',
-    callback: (name) => socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') }),
-  });
-});
-$('#new-folder-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '📁', title: '新建文件夹', hint: '创建一个空文件夹容器，可自行添加内容。',
-    placeholder: '输入文件夹名称...', defaultName: '新文件夹',
-    callback: (name) => socket.emit('project-create', { type: 'folder', name, data: getDefaultData('folder') }),
-  });
-});
-$('#new-shooting-plan-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '📋', title: '新建拍摄计划', hint: '将自动创建剧本 + 思维导图 + 故事三个子项目。',
-    placeholder: '输入拍摄计划名称...', defaultName: '新拍摄计划',
-    confirmText: '创建',
+    icon: '📂', title: '新建项目', hint: '创建一个空白项目，可在项目中添加剧本、导图、故事等。',
+    placeholder: '输入项目名称...', defaultName: '新项目',
     callback: (name) => {
-      socket.emit('project-create-batch', {
-        name,
-        children: [
-          { type: 'script', name: name + ' - 剧本' },
-          { type: 'mindmap', name: name + ' - 思维导图' },
-          { type: 'story', name: name + ' - 故事' },
-        ]
-      });
-    },
-  });
-});
-$('#new-storyboard-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '🎬', title: '新建分镜', hint: '创建一个新的分镜项目，将跳转到分镜编辑工具。',
-    placeholder: '输入分镜项目名称...', defaultName: '未命名分镜',
-    confirmText: '创建并打开',
-    callback: () => {
-      // 跳转到分镜面板
-      navBtns.forEach(b => b.classList.remove('active'));
-      panels.forEach(p => p.classList.remove('active'));
-      document.getElementById('nav-storyboard').classList.add('active');
-      document.getElementById('panel-storyboard').classList.add('active');
-      const frame = document.querySelector('#storyboard-frame iframe');
-      if (frame) {
-        const src = frame.src;
-        frame.src = '';
-        setTimeout(() => { frame.src = src; }, 50);
+      // 检查名称重复
+      if (projects.some(p => p.name === name && !p.deleted)) {
+        showAlert('项目名称已存在，请换一个', '提示', '⚠️');
+        return;
       }
+      socket.emit('project-create', { type: 'project', name, data: { items: [] } });
     },
   });
 });
+
+// ─── 项目详情按钮 ──────────────────────────────────────
+function pdAddItem(type) {
+  if (!currentDetailProject) return;
+  showCreateModal({
+    icon: {script:'📜',mindmap:'🧠',story:'📖',storyboard:'🎬'}[type] || '📄',
+    title: '新建' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[type],
+    hint: '输入名称后创建',
+    placeholder: '输入名称...',
+    defaultName: '新' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[type],
+    callback: (name) => socket.emit('project-add-item', { projectId: currentDetailProject.id, itemType: type, itemName: name }),
+  });
+}
+document.getElementById('pd-add-script')?.addEventListener('click', () => pdAddItem('script'));
+document.getElementById('pd-add-mindmap')?.addEventListener('click', () => pdAddItem('mindmap'));
+document.getElementById('pd-add-story')?.addEventListener('click', () => pdAddItem('story'));
+document.getElementById('pd-add-storyboard')?.addEventListener('click', () => pdAddItem('storyboard'));
 
 // ─── 回收站按钮 ─────────────────────────────────────────
 $('#trash-btn').addEventListener('click', () => {
@@ -636,7 +629,7 @@ function renderProjects() {
         <div class="p-name">${esc(cleanProjectName(p.name))}</div>
         <div class="p-meta" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
           <span title="${visLabels[vis]}">${visIcons[vis] || '🔒'}</span>
-          ${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}
+          ${p.type === 'project' ? ('项目 · ' + ((p.data && p.data.items) ? p.data.items.length + '个子项' : '0个子项')) : (names[p.type] || p.type)} · ${timeAgo(p.updatedAt)}
         </div>
         <div class="p-owner">${esc(p.owner || '我')}</div>
         ${canChange ? `<div style="margin-top:4px"><select class="vis-select" data-id="${p.id}" style="padding:1px 4px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);outline:none">${visOpts}</select></div>` : `<div style="margin-top:4px;font-size:10px;color:var(--text-dim)">${visIcons[vis]} ${visLabels[vis]}</div>`}
@@ -729,10 +722,93 @@ function openProject(p) {
     const btn = document.querySelector(`.nav-btn[data-module="${p.type}"]`);
     if (btn) btn.classList.add('active');
   }
+  if (p.type === 'project') {
+    renderProjectDetail(p);
+    return;
+  }
   switch (p.type) {
     case 'script':  window.openScriptEditor(p); break;
     case 'mindmap': window.openMindMapEditor(p); break;
     case 'story':   window.openStoryEditor(p); break;
+  }
+}
+
+let currentDetailProject = null;
+
+function renderProjectDetail(p) {
+  currentDetailProject = p;
+  document.getElementById('project-detail-title').textContent = `📂 ${esc(p.name)}`;
+  
+  const visIcons = { 'private': '🔒', 'public-read': '👁️', 'public-edit': '✏️' };
+  const visLabels = { 'private': '私密', 'public-read': '公开-只读', 'public-edit': '公开-可编辑' };
+  const vis = p.visibility || 'private';
+  document.getElementById('pd-visibility').innerHTML = `${visIcons[vis]} ${visLabels[vis]}`;
+  document.getElementById('pd-owner').textContent = `创建者: ${p.owner || '未知'}`;
+  document.getElementById('pd-created').textContent = `创建于 ${new Date(p.createdAt).toLocaleString('zh-CN')}`;
+
+  const items = p.data && p.data.items ? p.data.items : [];
+  const container = document.getElementById('pd-items');
+  const empty = document.getElementById('pd-empty');
+  
+  container.innerHTML = '';
+  if (items.length === 0) {
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  
+  const itemIcons = { script: '📜', mindmap: '🧠', story: '📖', storyboard: '🎬' };
+  const itemNames = { script: '剧本', mindmap: '导图', story: '故事', storyboard: '分镜' };
+  
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    card.innerHTML = `
+      <span class="p-type">${itemIcons[item.type] || '📄'}</span>
+      <button class="p-del" data-project="${p.id}" data-item="${item.id}">×</button>
+      <div class="p-name">${esc(item.name)}</div>
+      <div class="p-meta">${itemNames[item.type] || item.type}</div>
+    `;
+    card.addEventListener('click', () => openProjectItem(p, item));
+    card.querySelector('.p-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (await showConfirm(`删除「${item.name}」？`, '删除确认', '🗑️')) {
+        socket.emit('project-remove-item', { projectId: p.id, itemId: item.id });
+      }
+    });
+    container.appendChild(card);
+  });
+}
+
+function openProjectItem(project, item) {
+  navBtns.forEach(b => b.classList.remove('active'));
+  panels.forEach(pl => pl.classList.remove('active'));
+  const panel = document.getElementById(`panel-${item.type}`);
+  if (panel) {
+    panel.classList.add('active');
+    if (item.type === 'storyboard') {
+      // 分镜特殊处理
+      document.getElementById('nav-storyboard').classList.add('active');
+      const frame = document.querySelector('#storyboard-frame iframe');
+      if (frame) {
+        const src = frame.src;
+        frame.src = '';
+        setTimeout(() => { frame.src = src; }, 50);
+      }
+    }
+  }
+  // 把 item 包装成编辑器可识别的格式
+  const fakeProject = {
+    id: item.id,
+    type: item.type,
+    name: item.name,
+    data: item.data || {},
+    parentProject: project,
+  };
+  switch (item.type) {
+    case 'script':  window.openScriptEditor(fakeProject); break;
+    case 'mindmap': window.openMindMapEditor(fakeProject); break;
+    case 'story':   window.openStoryEditor(fakeProject); break;
   }
 }
 
@@ -1124,14 +1200,15 @@ document.getElementById('log-clear-btn').addEventListener('click', () => {
 });
 
 // ─── 返回项目列表 ────────────────────────────────────────
-document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back, #admin-back').forEach(btn => {
+document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back, #admin-back, #pd-back').forEach(btn => {
   btn.addEventListener('click', () => {
     navBtns.forEach(b => b.classList.remove('active'));
     panels.forEach(p => p.classList.remove('active'));
     document.querySelector('.nav-btn[data-module="projects"]').classList.add('active');
     document.getElementById('panel-projects').classList.add('active');
     renderProjects();
-    // 清除批注上下文
+    // 清除上下文
+    currentDetailProject = null;
     if (window.setAnnotationDocument) window.setAnnotationDocument(null);
   });
 });

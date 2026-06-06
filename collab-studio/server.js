@@ -507,6 +507,34 @@ io.on('connection', (socket) => {
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     saveProjects();
   });
+  socket.on('project-add-item', ({ projectId, itemType, itemName }) => {
+    const p = projects.find(x => x.id === projectId);
+    if (!p) return;
+    if (!canEditProject(socket.userName, p)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    if (!['script', 'mindmap', 'story', 'storyboard'].includes(itemType)) return;
+    if (!p.data.items) p.data.items = [];
+    const item = {
+      id: uuid().slice(0, 12),
+      type: itemType,
+      name: itemName || getDefaultItemName(itemType),
+      data: JSON.parse(JSON.stringify(getDefaultData(itemType))),
+    };
+    p.data.items.push(item);
+    p.updatedAt = Date.now();
+    saveProjects();
+    io.emit('project-item-added', { projectId, item });
+    addLog(socket.id, socket.userName, 'added item', p.type, p.name + ' → ' + item.name);
+  });
+  socket.on('project-remove-item', ({ projectId, itemId }) => {
+    const p = projects.find(x => x.id === projectId);
+    if (!p || !p.data.items) return;
+    if (!canEditProject(socket.userName, p)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    p.data.items = p.data.items.filter(it => it.id !== itemId);
+    p.updatedAt = Date.now();
+    saveProjects();
+    io.emit('project-item-removed', { projectId, itemId });
+    addLog(socket.id, socket.userName, 'removed item', p.type, p.name);
+  });
   socket.on('project-create-batch', (data) => {
     const { name, children } = data;
     if (!name) return;
@@ -1046,8 +1074,14 @@ function getDefaultData(type) {
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
     case 'folder': return { children: [] };
+    case 'project': return { items: [] };
     default: return {};
   }
+}
+
+function getDefaultItemName(type) {
+  const names = { script: '新剧本', mindmap: '新导图', story: '新故事', storyboard: '新分镜' };
+  return names[type] || '新项目';
 }
 
 // ─── 主动连接对方（UDP 发现后调用） ────────────────────

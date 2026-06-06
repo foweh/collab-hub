@@ -44,34 +44,38 @@ let SERVER_NAME = os.hostname();
 // ─── 用户管理 ────────────────────────────────────────────
 let users = loadJSON(USERS_FILE, {});
 
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
 async function ensureAdminAccount() {
   if (users['热合曼']) {
     const ex = users['热合曼'];
-    // 有旧版 SHA256 密码 (password) 但没有新版 bcrypt 哈希 -> 迁移
-    if ((ex.password && ex.password.length < 20) || (ex.passwordHash && ex.passwordHash.length < 20)) {
-      const envPwd = process.env.ADMIN_PASSWORD || '';
-      if (envPwd) {
-        ex.passwordHash = await bcrypt.hash(envPwd, SALT_ROUNDS);
-        ex.pwdLegacy = false;
-        console.log('[用户] 已从环境变量更新管理员密码');
-      } else {
-        ex.pwdLegacy = true;
-        console.log('[用户] 管理员使用旧版密码，请尽快重置');
-      }
+    // 取现有的哈希字段（新 bcrypt 或旧 SHA256）
+    const curHash = ex.passwordHash || ex.password || '';
+    let needReset = false;
+
+    if (curHash.length >= 20) {
+      // 有 bcrypt 哈希 → 校验是否匹配默认密码
+      try {
+        needReset = !bcrypt.compareSync(ADMIN_DEFAULT_PASSWORD, curHash);
+      } catch (_) { needReset = true; }
+    } else if (curHash.length > 0) {
+      // 旧版 SHA256 → 需要升级
+      needReset = true;
+    }
+
+    if (needReset) {
+      ex.passwordHash = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, SALT_ROUNDS);
+      ex.pwdLegacy = false;
       saveUsers();
+      console.log('[用户] 管理员密码已重置');
     }
     return;
   }
-  const adminPwd = process.env.ADMIN_PASSWORD || 'admin' + Date.now().toString(36);
-  const hash = await bcrypt.hash(adminPwd, SALT_ROUNDS);
+  // 首次创建管理员
+  const hash = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, SALT_ROUNDS);
   users['热合曼'] = { passwordHash: hash, isAdmin: true, fingerprint: '', isBanned: false, pwdLegacy: false };
   saveUsers();
-  if (!process.env.ADMIN_PASSWORD) {
-    console.log('\n⚠️ 首次启动 — 管理员密码已自动生成');
-    console.log(`📌 管理员: 热合曼`);
-    console.log(`📌 密码:    ${adminPwd}`);
-    console.log('📌 请登录后立即修改密码，或设置环境变量 ADMIN_PASSWORD\n');
-  }
+  console.log('[用户] 管理员账号已创建');
 }
 let adminReady = ensureAdminAccount().catch(e => console.error('[用户] 管理员初始化失败', e));
 
@@ -1028,6 +1032,10 @@ function startServer(port) {
     console.log('║  多台电脑打开页面 → 开启局域网          ║');
     console.log('║  自动发现并组建协作网络                  ║');
   }
+  console.log('╠══════════════════════════════════════════╣');
+  console.log(`║  👑 管理员: 热合曼                        ║`);
+  console.log(`║  🔑 密码:    ${ADMIN_DEFAULT_PASSWORD.padEnd(28)}║`);
+  console.log('║  💡 登录后可在右侧面板修改密码           ║');
   console.log('╚══════════════════════════════════════════╝');
   });
 }

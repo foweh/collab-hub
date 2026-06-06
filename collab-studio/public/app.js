@@ -165,6 +165,11 @@ function updateUIBasedOnRole() {
   const adminPanel = document.getElementById('admin-panel');
   if (contactSection) contactSection.style.display = isAdmin ? 'none' : 'block';
   if (adminPanel) adminPanel.style.display = isAdmin ? 'block' : 'none';
+  // 更新自我标识上的角色图标
+  if (selfBadge) {
+    const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
+    selfBadge.textContent = `${roleLabel} ${myName}`;
+  }
 }
 
 // ─── 浏览器指纹 ────────────────────────────────────────
@@ -186,6 +191,7 @@ if (!savedAuth || !savedAuth.name) {
 
 let myName = savedAuth ? savedAuth.name : '';
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
+let myRole = savedAuth ? (savedAuth.role || (isAdmin ? 'editor' : 'commenter')) : 'commenter';
 
 // 连接后自动用已保存的身份登录（密码不保存，管理员需重新登录）
 socket.on('connect', () => {
@@ -195,10 +201,13 @@ socket.on('connect', () => {
 });
 
 // 服务器验证结果
-socket.on('login-success', ({ userName, isAdmin: admin }) => {
+
+socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
   isAdmin = admin;
+  myRole = role || (isAdmin ? 'editor' : 'commenter');
   app.style.display = 'flex';
-  selfBadge.textContent = isAdmin ? `👑 ${userName}` : `👤 ${userName}`;
+  const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
+  selfBadge.textContent = `${roleLabel} ${userName}`;
   if (isAdmin) selfBadge.className = 'badge admin';
   else selfBadge.className = 'badge';
   updateUIBasedOnRole();
@@ -234,6 +243,14 @@ socket.on('kicked', (msg) => {
   sessionStorage.removeItem('collab-auth');
   setTimeout(() => { window.location.href = '/'; }, 2000);
   app.style.display = 'none';
+});
+
+socket.on('role-changed', ({ role }) => {
+  myRole = role;
+  // 更新 selfBadge 图标
+  const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
+  selfBadge.textContent = `${roleLabel} ${myName}`;
+  showAlert(`你的角色已变更为: ${role}`, '角色变更', '🎭');
 });
 
 // ─── Socket 事件 ─────────────────────────────────────────
@@ -282,6 +299,10 @@ socket.on('project-updated', (data) => {
     p.updatedAt = data.updatedAt;
   }
   renderProjects();
+});
+
+socket.on('project-update-error', (msg) => {
+  showAlert(msg, '权限不足', '🚫');
 });
 
 socket.on('project-deleted', (id) => {
@@ -845,13 +866,17 @@ socket.on('admin-users-list', (list) => {
   tbody.innerHTML = '';
   list.forEach(u => {
     if (u.isAdmin) return; // 不显示管理员自己
+    const roleOptions = ['editor', 'commenter', 'viewer'].map(r =>
+      `<option value="${r}"${r === u.role ? ' selected' : ''}>${r}</option>`
+    ).join('');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${esc(u.name)}</td>
       <td>${u.isBanned ? '🚫 已拉黑' : '✅ 正常'}</td>
+      <td><select class="admin-role-select" data-name="${esc(u.name)}" style="padding:1px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:11px;outline:none">${roleOptions}</select></td>
       <td><code style="font-size:11px;color:var(--text-dim)">${esc(u.fingerprint || '—')}</code></td>
       <td>
-        <input type="password" class="admin-new-pwd" data-name="${esc(u.name)}" placeholder="新密码" style="width:90px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:11px;outline:none">
+        <input type="password" class="admin-new-pwd" data-name="${esc(u.name)}" placeholder="新密码" style="width:80px;padding:2px 4px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);font-size:11px;outline:none">
         <button class="admin-pwd-btn" data-name="${esc(u.name)}" style="padding:2px 6px;font-size:11px">修改</button>
       </td>
       <td>
@@ -862,6 +887,16 @@ socket.on('admin-users-list', (list) => {
       </td>
     `;
     tbody.appendChild(tr);
+  });
+  
+  // 角色变更
+  tbody.querySelectorAll('.admin-role-select').forEach(sel => {
+    sel.onchange = async () => {
+      const name = sel.dataset.name;
+      const role = sel.value;
+      if (!await showConfirm(`将 ${name} 的角色设为 "${role}"？`, '修改角色', '🎭')) { return; }
+      socket.emit('admin-set-role', { targetName: name, role });
+    };
   });
   
   // 修改密码
@@ -948,6 +983,8 @@ document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back').
     document.querySelector('.nav-btn[data-module="projects"]').classList.add('active');
     document.getElementById('panel-projects').classList.add('active');
     renderProjects();
+    // 清除批注上下文
+    if (window.setAnnotationDocument) window.setAnnotationDocument(null);
   });
 });
 
@@ -1207,4 +1244,240 @@ socket.on('admin-permission-request', ({ from, target }) => {
   ).then(approved => {
     socket.emit('admin-approve-permission', { from, target, approve: approved });
   });
+});
+
+// ═══════════════════════════════════════════════════════════
+// ─── 批注系统 ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+let currentAnnotationDocId = null;
+let currentAnnotations = [];
+
+window.setAnnotationDocument = function(documentId) {
+  currentAnnotationDocId = documentId;
+  if (documentId) {
+    socket.emit('annotation-list', { documentId });
+  } else {
+    currentAnnotations = [];
+    renderAnnotationList();
+  }
+};
+
+socket.on('annotation-list-result', ({ documentId, annotations }) => {
+  if (documentId !== currentAnnotationDocId) return;
+  currentAnnotations = annotations || [];
+  renderAnnotationList();
+});
+
+socket.on('annotation-created', (ann) => {
+  if (ann.documentId === currentAnnotationDocId) {
+    currentAnnotations.push(ann);
+    renderAnnotationList();
+  }
+});
+
+socket.on('annotation-replied', ({ annotationId, reply }) => {
+  const ann = currentAnnotations.find(a => a.id === annotationId);
+  if (ann) {
+    ann.replyThread.push(reply);
+    ann.updatedAt = Date.now();
+    renderAnnotationList();
+  }
+});
+
+socket.on('annotation-status-updated', ({ annotationId, status }) => {
+  const ann = currentAnnotations.find(a => a.id === annotationId);
+  if (ann) {
+    ann.status = status;
+    renderAnnotationList();
+  }
+});
+
+socket.on('annotation-deleted', ({ annotationId }) => {
+  currentAnnotations = currentAnnotations.filter(a => a.id !== annotationId);
+  renderAnnotationList();
+});
+
+function renderAnnotationList() {
+  const container = document.getElementById('annotation-list');
+  const emptyEl = document.getElementById('annotation-empty');
+  const countEl = document.getElementById('annotation-count');
+  if (!container) return;
+
+  const filter = document.getElementById('annotation-filter-select');
+  const filterVal = filter ? filter.value : 'all';
+
+  let filtered = currentAnnotations;
+  if (filterVal !== 'all') {
+    filtered = currentAnnotations.filter(a => a.status === filterVal);
+  }
+  filtered = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  if (countEl) {
+    const openCount = currentAnnotations.filter(a => a.status === 'open' || a.status === 'pending').length;
+    countEl.textContent = openCount > 0 ? '(' + openCount + ' 未解决)' : '';
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '';
+    if (emptyEl) emptyEl.style.display = 'block';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  container.innerHTML = filtered.map(ann => {
+    const statusIcons = { open: '\ud83d\udfe1', resolved: '\u2705', rejected: '\u274c', pending: '\u23f3' };
+    const statusLabels = { open: '未解决', resolved: '已解决', rejected: '已拒绝', pending: '待讨论' };
+    const time = new Date(ann.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+    const replies = (ann.replyThread || []).map(r =>
+      '<div class="ann-reply"><span class="ann-reply-author">' + esc(r.userId) + '</span> ' + esc(r.text) + ' <span class="ann-reply-time">' + new Date(r.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) + '</span></div>'
+    ).join('');
+
+    const canModify = isAdmin || ann.userId === myName;
+    const anchorHtml = ann.anchor && ann.anchor.text
+      ? '<div class="ann-anchor">📎 "' + esc(ann.anchor.text.slice(0, 40)) + (ann.anchor.text.length > 40 ? '…' : '') + '"</div>'
+      : '';
+
+    let actionsHtml = '<input type="text" class="ann-reply-input" data-id="' + ann.id + '" placeholder="回复..." maxlength="500">'
+      + '<button class="ann-reply-btn" data-id="' + ann.id + '" style="padding:1px 6px;font-size:11px">回复</button>';
+    if (canModify) {
+      const opts = ['open', 'resolved', 'rejected', 'pending'].map(v =>
+        '<option value="' + v + '"' + (ann.status === v ? ' selected' : '') + '>' + statusLabels[v] + '</option>'
+      ).join('');
+      actionsHtml += '<select class="ann-status-select" data-id="' + ann.id + '" style="padding:1px 4px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text)">' + opts + '</select>'
+        + '<button class="ann-delete-btn" data-id="' + ann.id + '" style="padding:1px 6px;font-size:11px;color:var(--danger)">✕</button>';
+    }
+
+    return '<div class="ann-card" data-id="' + ann.id + '">'
+      + '<div class="ann-header"><span class="ann-author">' + esc(ann.userId) + '</span>'
+      + '<span class="ann-status" style="font-size:11px">' + (statusIcons[ann.status] || '🟡') + ' ' + (statusLabels[ann.status] || ann.status) + '</span>'
+      + '<span class="ann-time">' + time + '</span></div>'
+      + '<div class="ann-text">' + esc(ann.content.text) + '</div>'
+      + anchorHtml
+      + '<div class="ann-replies">' + replies + '</div>'
+      + '<div class="ann-actions">' + actionsHtml + '</div>'
+      + '</div>';
+  }).join('');
+
+  // 回复
+  container.querySelectorAll('.ann-reply-btn').forEach(btn => {
+    btn.onclick = function() {
+      const input = this.parentElement.querySelector('.ann-reply-input');
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('annotation-reply', { annotationId: this.dataset.id, text: text });
+      input.value = '';
+    };
+  });
+  container.querySelectorAll('.ann-reply-input').forEach(inp => {
+    inp.onkeydown = function(e) {
+      if (e.key === 'Enter') {
+        const btn = this.parentElement.querySelector('.ann-reply-btn');
+        if (btn) btn.click();
+      }
+    };
+  });
+
+  // 状态变更
+  container.querySelectorAll('.ann-status-select').forEach(sel => {
+    sel.onchange = function() {
+      socket.emit('annotation-update-status', { annotationId: this.dataset.id, status: this.value });
+    };
+  });
+
+  // 删除
+  container.querySelectorAll('.ann-delete-btn').forEach(btn => {
+    btn.onclick = async function() {
+      if (await showConfirm('确定删除此批注？', '删除批注', '🗑️')) {
+        socket.emit('annotation-delete', { annotationId: this.dataset.id });
+      }
+    };
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const filterSel = document.getElementById('annotation-filter-select');
+  if (filterSel) {
+    filterSel.onchange = renderAnnotationList;
+  }
+});
+
+// ─── 批注创建逻辑 ─────────────────────────────────────────
+
+let annSelectedText = ''; // 当前选中的文本
+let annDocumentId = '';   // 当前文档 ID
+
+// 脚本编辑器批注按钮
+document.getElementById('script-add-annotation')?.addEventListener('click', function() {
+  if (!currentAnnotationDocId) {
+    showAlert('请先打开一个剧本项目', '提示', '📜');
+    return;
+  }
+  annDocumentId = currentAnnotationDocId;
+  showAnnotationCreateModal();
+});
+
+// 故事编辑器批注按钮
+document.getElementById('story-add-annotation')?.addEventListener('click', function() {
+  if (!currentAnnotationDocId) {
+    showAlert('请先打开一个故事项目', '提示', '📖');
+    return;
+  }
+  annDocumentId = currentAnnotationDocId;
+  showAnnotationCreateModal();
+});
+
+function showAnnotationCreateModal() {
+  // 获取用户选中的文本
+  const sel = window.getSelection();
+  annSelectedText = sel ? sel.toString().trim() : '';
+
+  const selDisplay = document.getElementById('ann-selected-text');
+  if (selDisplay) {
+    selDisplay.textContent = annSelectedText || '(未选中文本 - 批注将作为全局评论)';
+    selDisplay.style.color = annSelectedText ? 'var(--text)' : 'var(--text-dim)';
+  }
+
+  const input = document.getElementById('ann-create-input');
+  if (input) input.value = '';
+
+  document.getElementById('annotation-create-modal').style.display = 'flex';
+  setTimeout(() => { if (input) input.focus(); }, 200);
+}
+
+function closeAnnotationCreateModal() {
+  document.getElementById('annotation-create-modal').style.display = 'none';
+}
+
+document.getElementById('ann-create-close')?.addEventListener('click', closeAnnotationCreateModal);
+document.getElementById('ann-create-cancel')?.addEventListener('click', closeAnnotationCreateModal);
+document.getElementById('ann-create-confirm')?.addEventListener('click', function() {
+  const input = document.getElementById('ann-create-input');
+  const text = input ? input.value.trim() : '';
+  if (!text) {
+    showAlert('请输入批注内容', '提示', '💬');
+    return;
+  }
+
+  const anchor = annSelectedText ? {
+    type: 'text-range',
+    startOffset: 0,
+    endOffset: annSelectedText.length,
+    text: annSelectedText
+  } : { type: 'text-range', startOffset: 0, endOffset: 0, text: '' };
+
+  socket.emit('annotation-create', {
+    documentId: annDocumentId,
+    anchor: anchor,
+    content: { text, attachments: [] }
+  });
+
+  closeAnnotationCreateModal();
+  showAlert('批注已添加', '成功', '✅');
+});
+
+// 点击模态框外部关闭
+document.getElementById('annotation-create-modal')?.addEventListener('click', function(e) {
+  if (e.target === this) closeAnnotationCreateModal();
 });

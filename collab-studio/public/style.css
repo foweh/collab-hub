@@ -1168,3 +1168,26 @@ body {
 /* ─── 消息权限提示 ─── */
 .perm-hint { font-size: 11px; color: var(--text-dim); text-align: center; padding: 4px; margin-top: 2px; }
 
+/* ─── 批注面板 ─── */
+#annotation-section { margin-top: 8px; }
+.ann-card { background: var(--surface2); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; font-size: 12px; border-left: 3px solid var(--accent); }
+.ann-header { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+.ann-author { font-weight: 600; color: var(--accent); font-size: 11px; }
+.ann-status { font-size: 11px; }
+.ann-time { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+.ann-text { color: var(--text); word-break: break-word; margin-bottom: 3px; line-height: 1.4; }
+.ann-anchor { font-size: 10px; color: var(--text-dim); font-style: italic; margin-bottom: 3px; padding: 2px 4px; background: rgba(79,195,247,0.08); border-radius: 3px; }
+.ann-replies { margin-top: 4px; }
+.ann-reply { padding: 2px 4px; border-top: 1px solid var(--border); margin-top: 2px; font-size: 11px; }
+.ann-reply-author { font-weight: 600; color: var(--text-dim); }
+.ann-reply-time { font-size: 10px; color: var(--text-dim); float: right; }
+.ann-actions { display: flex; gap: 4px; margin-top: 4px; align-items: center; flex-wrap: wrap; }
+.ann-reply-input { flex: 1; min-width: 60px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 11px; outline: none; }
+.ann-reply-input:focus { border-color: var(--accent); }
+
+/* 文本高亮（剧本/故事中的批注标记） */
+mark.ann-highlight { background: rgba(255, 202, 40, 0.25); border-bottom: 2px solid #ffca28; cursor: pointer; border-radius: 2px; padding: 0 1px; }
+mark.ann-highlight:hover { background: rgba(255, 202, 40, 0.4); }
+mark.ann-highlight.resolved { background: rgba(102, 187, 106, 0.2); border-bottom-color: #66bb6a; }
+mark.ann-highlight.rejected { background: rgba(239, 83, 80, 0.15); border-bottom-color: #ef5350; }
+

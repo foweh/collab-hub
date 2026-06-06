@@ -23,6 +23,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const FENJING_FILE = path.join(DATA_DIR, 'fenjing-state.json');
 const PWD_RESETS_FILE = path.join(DATA_DIR, 'password-resets.json');
 const MSG_PERM_FILE = path.join(DATA_DIR, 'message-permissions.json');
+const ANNOTATIONS_FILE = path.join(DATA_DIR, 'annotations.json');
 const LOG_FILE = path.join(DATA_DIR, 'operation-log.json');
 
 // ─── 配置 & CLI ─────────────────────────────────────────
@@ -101,6 +102,28 @@ function isFingerprintBanned(fp) {
   return false;
 }
 
+// ─── 角色权限校验 ──────────────────────────────────────────
+function getUserRole(name) {
+  if (!users[name]) return 'viewer';
+  if (users[name].isAdmin) return 'editor';
+  return users[name].role || 'commenter';
+}
+
+function canEdit(name) {
+  return users[name] && (users[name].isAdmin || getUserRole(name) === 'editor');
+}
+
+function canComment(name) {
+  if (!users[name]) return false;
+  if (users[name].isAdmin) return true;
+  const role = getUserRole(name);
+  return role === 'editor' || role === 'commenter';
+}
+
+function canView(name) {
+  return users[name] && true;
+}
+
 // ─── 项目存储 ────────────────────────────────────────────
 let projects = loadJSON(PROJECTS_FILE, []);
 
@@ -125,6 +148,10 @@ function saveMsgPermissions() { saveJSON(MSG_PERM_FILE, messagePermissions); }
 // ─── 分镜状态 ──────────────────────────────────────────
 function loadFenjingState() { return loadJSON(FENJING_FILE, null); }
 function saveFenjingState(state) { saveJSON(FENJING_FILE, state); }
+
+// ─── 批注存储 ────────────────────────────────────────────
+let annotations = loadJSON(ANNOTATIONS_FILE, []);
+function saveAnnotations() { saveJSON(ANNOTATIONS_FILE, annotations); }
 
 // ─── 对等节点 ────────────────────────────────────────────
 const peers = new Map(); // serverId → { socket, name, ip, port, connected, note }
@@ -390,7 +417,8 @@ io.on('connection', (socket) => {
       } else {
         users[userName] = {
           passwordHash: password ? await hashPwd(password) : '',
-          isAdmin: false, fingerprint: '', isBanned: false
+          isAdmin: false, fingerprint: '', isBanned: false,
+          role: 'commenter'
         };
       }
     }
@@ -450,6 +478,11 @@ io.on('connection', (socket) => {
   });
   socket.on('project-update', (data) => {
     const p = projects.find(x => x.id === data.id); if (!p) return;
+    // 只有 editor 及以上角色可以修改正式内容
+    if (data.data !== undefined && !canEdit(socket.userName)) {
+      socket.emit('project-update-error', '你没有修改正式内容的权限');
+      return;
+    }
     if (data.name !== undefined) p.name = data.name;
     if (data.data !== undefined) p.data = data.data;
     p.updatedAt = Date.now();
@@ -497,6 +530,7 @@ io.on('connection', (socket) => {
     const list = Object.entries(users).map(([name, u]) => ({
       name, isAdmin: u.isAdmin, hasPassword: !!u.passwordHash,
       isBanned: u.isBanned, fingerprint: u.fingerprint || '',
+      role: u.isAdmin ? 'editor' : (u.role || 'commenter'),
     }));
     socket.emit('admin-users-list', list);
   });
@@ -543,6 +577,46 @@ io.on('connection', (socket) => {
     saveUsers();
     addLog(socket.id, socket.userName, 'unbanned', 'system', targetName);
     broadcastOnlineUsers();
+  });
+
+  // ── 角色管理 ──
+  socket.on('admin-set-role', ({ targetName, role }) => {
+    if (!socket.isAdmin || !users[targetName] || users[targetName].isAdmin) return;
+    if (!['editor', 'commenter', 'viewer'].includes(role)) return;
+    users[targetName].role = role;
+    saveUsers();
+    addLog(socket.id, socket.userName, 'set role', 'system', `${targetName} → ${role}`);
+    broadcastOnlineUsers();
+    // 通知目标用户角色变更
+    for (const [sid, u] of onlineUsers) {
+      if (u.name === targetName) io.to(sid).emit('role-changed', { role });
+    }
+  });
+
+  // ── 角色查询 ──
+  socket.on('admin-get-roles', () => {
+    if (!socket.isAdmin) return;
+    const roleList = [];
+    for (const name in users) {
+      if (users[name].isAdmin) continue;
+      roleList.push({ name, role: getUserRole(name) });
+    }
+    socket.emit('admin-roles-list', roleList);
+  });
+
+  socket.on('get-my-role', () => {
+    if (!socket.userName) return;
+    socket.emit('my-role', { role: getUserRole(socket.userName) });
+  });
+
+  socket.on('check-edit-permission', () => {
+    if (!socket.userName) { socket.emit('edit-permission', { allowed: false }); return; }
+    socket.emit('edit-permission', { allowed: canEdit(socket.userName) });
+  });
+
+  socket.on('check-comment-permission', () => {
+    if (!socket.userName) { socket.emit('comment-permission', { allowed: false }); return; }
+    socket.emit('comment-permission', { allowed: canComment(socket.userName) });
   });
 
   // ── 用户 → 管理员消息 ──
@@ -651,6 +725,73 @@ io.on('connection', (socket) => {
       onlineUsers: onlineUsers.size, peers: peers.size,
       projects: projects.length, logCount: operationLog.length,
     });
+  });
+
+  // ── 批注系统 ──
+  socket.on('annotation-list', ({ documentId }) => {
+    if (!socket.userName) return;
+    const docAnnotations = annotations.filter(a => a.documentId === documentId);
+    socket.emit('annotation-list-result', { documentId, annotations: docAnnotations });
+  });
+
+  socket.on('annotation-create', ({ documentId, anchor, content }) => {
+    if (!socket.userName) { socket.emit('annotation-error', '请先登录'); return; }
+    if (!canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
+    if (!documentId || !content || !content.text) { socket.emit('annotation-error', '批注内容不能为空'); return; }
+    const ann = {
+      id: uuid().slice(0, 12),
+      documentId,
+      userId: socket.userName,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: 'open',
+      anchor: anchor || { type: 'text-range', startOffset: 0, endOffset: 0, text: '' },
+      content: { text: content.text, attachments: content.attachments || [] },
+      replyThread: [],
+    };
+    annotations.push(ann);
+    saveAnnotations();
+    io.emit('annotation-created', ann);
+    addLog(socket.id, socket.userName, 'created annotation', documentId, content.text.slice(0, 30));
+  });
+
+  socket.on('annotation-reply', ({ annotationId, text }) => {
+    if (!socket.userName) { socket.emit('annotation-error', '请先登录'); return; }
+    if (!canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) { socket.emit('annotation-error', '批注不存在'); return; }
+    const reply = { userId: socket.userName, text: text.trim(), timestamp: Date.now() };
+    ann.replyThread.push(reply);
+    ann.updatedAt = Date.now();
+    saveAnnotations();
+    io.emit('annotation-replied', { annotationId, reply });
+    addLog(socket.id, socket.userName, 'replied annotation', annotationId, text.slice(0, 30));
+  });
+
+  socket.on('annotation-update-status', ({ annotationId, status }) => {
+    if (!socket.userName) return;
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) { socket.emit('annotation-error', '批注不存在'); return; }
+    // 仅批注作者或管理员可以修改状态
+    if (ann.userId !== socket.userName && !socket.isAdmin) { socket.emit('annotation-error', '你没有权限修改此批注状态'); return; }
+    if (!['open', 'resolved', 'rejected', 'pending'].includes(status)) return;
+    ann.status = status;
+    ann.updatedAt = Date.now();
+    saveAnnotations();
+    io.emit('annotation-status-updated', { annotationId, status, updatedBy: socket.userName });
+    addLog(socket.id, socket.userName, 'changed annotation status', annotationId, status);
+  });
+
+  socket.on('annotation-delete', ({ annotationId }) => {
+    if (!socket.userName) return;
+    const ann = annotations.find(a => a.id === annotationId);
+    if (!ann) return;
+    // 仅批注作者或管理员可以删除
+    if (ann.userId !== socket.userName && !socket.isAdmin) { socket.emit('annotation-error', '你没有权限删除此批注'); return; }
+    annotations = annotations.filter(a => a.id !== annotationId);
+    saveAnnotations();
+    io.emit('annotation-deleted', { annotationId });
+    addLog(socket.id, socket.userName, 'deleted annotation', annotationId, '');
   });
 
   socket.on('disconnect', () => {

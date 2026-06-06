@@ -471,6 +471,11 @@ window.openScriptEditor = function(project) {
 
   scriptTitle.textContent = `📜 ${esc(project.name)}`;
   renderScript();
+
+  // 设置批注文档上下文
+  if (window.setAnnotationDocument) {
+    window.setAnnotationDocument(project.id);
+  }
 };
 
 // ─── 幕按钮 ──────────────────────────────────────────────

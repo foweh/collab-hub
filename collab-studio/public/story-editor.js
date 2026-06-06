@@ -13,6 +13,10 @@ const addChapterBtn = $('#story-add-chapter');
 window.openStoryEditor = function(project) {
   currentProject = project;
   titleEl.textContent = `📖 ${esc(project.name)}`;
+  // 设置批注文档上下文
+  if (window.setAnnotationDocument) {
+    window.setAnnotationDocument(project.id);
+  }
   const data = project.data || { chapters: [] };
   if (data.chapters.length === 0) {
     data.chapters.push({ title: '第一章', content: '' });

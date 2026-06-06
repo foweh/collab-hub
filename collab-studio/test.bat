@@ -22,11 +22,17 @@ if not exist "node_modules\" (
   call npm install
 )
 
+:: 清理旧的后台 node 进程（只杀本项目的 server.js）
+echo 🧹 清理旧的服务进程...
+taskkill /f /fi "WINDOWTITLE eq Server A" 2>nul
+taskkill /f /fi "WINDOWTITLE eq Server B" 2>nul
+timeout /t 1 /nobreak >nul
+
 :: 启动 Server A（端口 3000）
 echo 🟢 启动 Server A (端口 3000)...
 start "Server A" cmd /c "node server.js & pause"
 
-:: 等 2 秒让 A 先起来
+:: 等 3 秒让 A 先起来
 echo ⏳ 等待 Server A 启动...
 timeout /t 3 /nobreak >nul
 
@@ -35,9 +41,6 @@ echo 🟢 启动 Server B (端口 3001，加入 localhost:3000)...
 start "Server B" cmd /c "node server.js --port 3001 --join localhost:3000 & pause"
 
 :: 等 2 秒让桥接建立
-timeout /t 2 /nobreak >nul
-
-:: 等 1 秒
 timeout /t 2 /nobreak >nul
 
 :: 打开两个浏览器

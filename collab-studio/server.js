@@ -987,7 +987,22 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // ─── 启动 ────────────────────────────────────────────────
-server.listen(HTTP_PORT, '0.0.0.0', () => {
+function startServer(port) {
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ 端口 ${port} 已被占用！`);
+      console.error('   可能已有另一个服务在运行。');
+      console.error('   解决方案：');
+      console.error(`     1. 关闭已运行的服务`);
+      console.error(`     2. 或换一个端口: node server.js --port ${port + 1}`);
+      console.error('');
+      process.exit(1);
+    } else {
+      console.error('[崩溃] 服务器错误:', err.message);
+      process.exit(1);
+    }
+  });
+  server.listen(port, '0.0.0.0', () => {
   if (JOIN_TARGET) setTimeout(autoJoin, 1500);
   let ip = 'localhost';
   try {
@@ -1011,4 +1026,7 @@ server.listen(HTTP_PORT, '0.0.0.0', () => {
     console.log('║  自动发现并组建协作网络                  ║');
   }
   console.log('╚══════════════════════════════════════════╝');
-});
+  });
+}
+
+startServer(HTTP_PORT);

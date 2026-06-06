@@ -8,21 +8,8 @@
 </head>
 <body>
 
-  <!-- ─── 入场 ─── -->
-  <div id="join-overlay">
-    <div class="join-card">
-      <h1>🎬 协作创作工作室</h1>
-      <p>局域网 · 实时协作 · 剧本 / 思维导图 / 故事</p>
-      <div class="join-input-group">
-        <input type="text" id="name-input" placeholder="你的名字..." maxlength="12" autofocus>
-        <button id="join-btn">进入工作室</button>
-      </div>
-      <input type="password" id="pwd-input" placeholder="管理员密码..." maxlength="20" style="display:none;margin-top:8px;width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);color:var(--text);font-size:14px;outline:none">
-    </div>
-  </div>
-
   <!-- ─── 主界面 ─── -->
-  <div id="app" style="display:none">
+  <div id="app">
     <!-- 顶栏 -->
     <header id="topbar">
       <div class="topbar-left">
@@ -41,6 +28,7 @@
         </div>
         <button class="toolbar-btn" id="refresh-lan-btn" title="刷新发现">🔄 <span data-i18n="refreshLan">搜索设备</span></button>
         <button class="toolbar-btn" id="lang-toggle-btn" title="中/EN" style="font-size:13px">🇨🇳 中文</button>
+        <button class="toolbar-btn" id="admin-login-btn" title="管理员登录" style="font-size:13px;padding:5px 8px">👑</button>
       </div>
     </header>
 

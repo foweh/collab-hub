@@ -31,11 +31,7 @@ let peers = [];         // 所有在线对等设备 [{ serverId, name, ip, port,
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
-const joinOverlay     = $('#join-overlay');
 const app             = $('#app');
-const nameInput       = $('#name-input');
-const pwdInput        = $('#pwd-input');
-const joinBtn         = $('#join-btn');
 const selfBadge       = $('#self-badge');
 const peerBadge       = $('#peer-badge');
 const lanCb           = $('#lan-toggle-cb');
@@ -206,36 +202,22 @@ const myFingerprint = generateFingerprint();
 let isAdmin = false;
 let myPwd = '';
 
-const savedName = localStorage.getItem('collab-user-name');
-const savedPwd  = localStorage.getItem('collab-user-pwd');
-if (savedName) { nameInput.value = savedName; }
-if (savedPwd)  { pwdInput.value  = savedPwd; }
-
-// 管理员名字输入时显示密码框
-nameInput.addEventListener('input', () => {
-  pwdInput.style.display = (nameInput.value.trim() === '热合曼') ? 'block' : 'none';
-});
-// 初始检查
-setTimeout(() => {
-  if (nameInput.value.trim() === '热合曼') pwdInput.style.display = 'block';
-}, 100);
-
-joinBtn.addEventListener('click', join);
-nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-pwdInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-
-function join() {
-  myName = nameInput.value.trim() || `用户_${Math.random().toString(36).slice(2, 5)}`;
-  myPwd  = pwdInput.value.trim();
-  localStorage.setItem('collab-user-name', myName);
-  localStorage.setItem('collab-user-pwd',  myPwd);
-  socket.emit('join', { name: myName, password: myPwd, fingerprint: myFingerprint });
+// 从 localStorage 恢复或生成随机用户名，但排除管理员名
+let savedName = localStorage.getItem('collab-user-name');
+if (!savedName || savedName === '热合曼') {
+  savedName = `用户${Math.random().toString(36).slice(2, 5)}`;
+  localStorage.setItem('collab-user-name', savedName);
 }
+myName = savedName;
+
+// 连接后自动加入（不自动发密码，管理员通过 👑 按钮登录）
+socket.on('connect', () => {
+  socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+});
 
 // 服务器验证结果
 socket.on('login-success', ({ userName, isAdmin: admin }) => {
   isAdmin = admin;
-  joinOverlay.style.display = 'none';
   app.style.display = 'flex';
   selfBadge.textContent = isAdmin ? `👑 ${userName}` : `👤 ${userName}`;
   if (isAdmin) selfBadge.className = 'badge admin';
@@ -253,6 +235,10 @@ socket.on('login-success', ({ userName, isAdmin: admin }) => {
 
 socket.on('login-error', (msg) => {
   showAlert(msg, '登录失败', '❌');
+  // 恢复普通用户状态
+  localStorage.removeItem('collab-user-pwd');
+  myName = localStorage.getItem('collab-user-name') || `用户${Math.random().toString(36).slice(2, 5)}`;
+  socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
 });
 
 socket.on('kicked', (msg) => {
@@ -553,6 +539,18 @@ refreshLanBtn.addEventListener('click', () => socket.emit('refresh-lan'));
 document.getElementById('lang-toggle-btn').addEventListener('click', () => {
   toggleLang();
   document.getElementById('lang-toggle-btn').textContent = currentLang === 'zh' ? '🇨🇳 中文' : '🇬🇧 English';
+});
+
+// ─── 管理员登录 ────────────────────────────────────────
+document.getElementById('admin-login-btn').addEventListener('click', () => {
+  if (isAdmin) { showAlert('你已是管理员', '提示', '👑'); return; }
+  const name = prompt('管理员账号：', '热合曼');
+  if (!name) return;
+  const pwd = prompt('密码：');
+  if (!pwd) return;
+  localStorage.setItem('collab-user-pwd', pwd);
+  localStorage.setItem('collab-user-name', name);
+  socket.emit('join', { name, password: pwd, fingerprint: myFingerprint });
 });
 
 // ─── 多设备 UI ──────────────────────────────────────────

@@ -23,54 +23,6 @@ body {
   overflow: hidden;
 }
 
-/* ─── 入场 ─── */
-#join-overlay {
-  position: fixed; inset: 0;
-  background: var(--bg);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 1000;
-}
-.join-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 48px 56px;
-  text-align: center;
-  box-shadow: var(--shadow);
-  max-width: 460px;
-  width: 90%;
-}
-.join-card h1 { font-size: 28px; margin-bottom: 6px; }
-.join-card p { color: var(--text-dim); margin-bottom: 28px; font-size: 14px; }
-.join-input-group { display: flex; gap: 8px; }
-.join-input-group input {
-  flex: 1;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface2);
-  color: var(--text);
-  font-size: 16px;
-  outline: none;
-}
-.join-input-group input[type="password"] {
-  margin-top: 0;
-  font-size: 14px;
-  padding: 10px 16px;
-}
-.join-input-group input:focus { border-color: var(--accent); }
-.join-input-group button {
-  padding: 12px 28px;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--accent);
-  color: #000;
-  font-weight: 600;
-  font-size: 16px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.join-input-group button:hover { opacity: 0.85; }
 
 /* ─── 主布局 ─── */
 #app { display: flex; flex-direction: column; height: 100vh; }

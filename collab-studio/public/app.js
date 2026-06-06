@@ -202,54 +202,31 @@ const myFingerprint = generateFingerprint();
 let isAdmin = false;
 let myPwd = '';
 
-// 从 localStorage 恢复用户名
-let savedName = localStorage.getItem('collab-user-name');
-if (!savedName) {
-  savedName = '';
-}
-myName = savedName;
+// 从 sessionStorage 读取登录凭证
+let savedAuth = null;
+try {
+  const raw = sessionStorage.getItem('collab-auth');
+  if (raw) savedAuth = JSON.parse(raw);
+} catch(_) {}
 
-// ─── 登录弹窗控制 ──────────────────────────────────────
-const loginModal = document.getElementById('login-modal');
-const loginName = document.getElementById('login-name');
-const loginPwd = document.getElementById('login-pwd');
-const loginError = document.getElementById('login-error');
-const loginBtn = document.getElementById('login-btn');
-
-function showLoginError(msg) {
-  loginError.textContent = msg;
-  loginError.style.display = 'block';
-  loginBtn.disabled = false;
-  loginBtn.textContent = '进入工作室';
+if (!savedAuth || !savedAuth.name) {
+  // 未登录，跳转到登录页
+  window.location.href = '/';
 }
 
-function doLogin() {
-  const name = loginName.value.trim();
-  const pwd = loginPwd.value;
-  if (!name) { showLoginError('请输入用户名'); return; }
-  if (!pwd) { showLoginError('请输入密码'); return; }
-  loginBtn.disabled = true;
-  loginBtn.textContent = '登录中...';
-  loginError.style.display = 'none';
-  localStorage.setItem('collab-user-name', name);
-  myName = name;
-  myPwd = pwd;
-  socket.emit('join', { name, password: pwd, fingerprint: myFingerprint });
-}
+let myName = savedAuth ? savedAuth.name : '';
+let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 
-loginBtn.addEventListener('click', doLogin);
-loginPwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
-loginName.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginPwd.focus(); });
-
-// 连接后显示登录弹窗（不自动加入）
+// 连接后自动用已保存的身份登录
 socket.on('connect', () => {
-  // 不自动join，等待用户操作
+  if (myName) {
+    socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+  }
 });
 
 // 服务器验证结果
 socket.on('login-success', ({ userName, isAdmin: admin }) => {
   isAdmin = admin;
-  loginModal.style.display = 'none';
   app.style.display = 'flex';
   selfBadge.textContent = isAdmin ? `👑 ${userName}` : `👤 ${userName}`;
   if (isAdmin) selfBadge.className = 'badge admin';
@@ -276,14 +253,16 @@ socket.on('login-success', ({ userName, isAdmin: admin }) => {
 });
 
 socket.on('login-error', (msg) => {
-  showLoginError(msg);
+  // 登录失败，清除凭证并跳转到登录页
+  sessionStorage.removeItem('collab-auth');
+  showAlert(msg, '登录失败', '❌');
+  setTimeout(() => { window.location.href = '/'; }, 2000);
 });
 
 socket.on('kicked', (msg) => {
   showAlert(msg, '已被踢出', '🚫');
-  loginModal.style.display = 'flex';
-  loginBtn.disabled = false;
-  loginBtn.textContent = '进入工作室';
+  sessionStorage.removeItem('collab-auth');
+  setTimeout(() => { window.location.href = '/'; }, 2000);
   app.style.display = 'none';
 });
 
@@ -670,11 +649,8 @@ document.getElementById('lang-toggle-btn').addEventListener('click', () => {
 // ─── 管理员登录 ────────────────────────────────────────
 document.getElementById('admin-login-btn').addEventListener('click', () => {
   if (isAdmin) { showAlert('你已是管理员', '提示', '👑'); return; }
-  loginName.value = '热合曼';
-  loginPwd.value = '';
-  loginError.style.display = 'none';
-  loginModal.style.display = 'flex';
-  loginPwd.focus();
+  sessionStorage.removeItem('collab-auth');
+  window.location.href = '/';
 });
 
 // ─── 多设备 UI ──────────────────────────────────────────
@@ -1010,51 +986,11 @@ document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back').
   });
 });
 
-// ─── 忘记密码 ──────────────────────────────────────────
-const forgotModal = document.getElementById('forgot-modal');
-const forgotName = document.getElementById('forgot-name');
-const forgotNewpwd = document.getElementById('forgot-newpwd');
-const forgotReason = document.getElementById('forgot-reason');
-const forgotError = document.getElementById('forgot-error');
-const forgotSubmit = document.getElementById('forgot-submit');
-const forgotCancel = document.getElementById('forgot-cancel');
-
-document.getElementById('login-forgot-link').addEventListener('click', (e) => {
-  e.preventDefault();
-  forgotName.value = loginName.value || '';
-  forgotNewpwd.value = '';
-  forgotReason.value = '';
-  forgotError.style.display = 'none';
-  forgotModal.style.display = 'flex';
-});
-
-forgotCancel.addEventListener('click', () => {
-  forgotModal.style.display = 'none';
-});
-
-forgotSubmit.addEventListener('click', () => {
-  const name = forgotName.value.trim();
-  const newPwd = forgotNewpwd.value;
-  const reason = forgotReason.value.trim();
-  if (!name) { forgotError.textContent = '请输入用户名'; forgotError.style.display = 'block'; return; }
-  if (!newPwd) { forgotError.textContent = '请输入新密码'; forgotError.style.display = 'block'; return; }
-  if (!reason) { forgotError.textContent = '请输入申请理由'; forgotError.style.display = 'block'; return; }
-  forgotError.style.display = 'none';
-  forgotSubmit.disabled = true;
-  forgotSubmit.textContent = '提交中...';
-  socket.emit('forgot-password-request', { name, newPassword: newPwd, reason });
-});
-
-socket.on('forgot-password-result', (msg) => {
-  forgotSubmit.disabled = false;
-  forgotSubmit.textContent = '提交申请';
-  if (msg.ok) {
-    forgotModal.style.display = 'none';
-    showAlert('申请已提交，请等待管理员审批', '申请成功', '✅');
-  } else {
-    forgotError.textContent = msg.error || '提交失败';
-    forgotError.style.display = 'block';
-  }
+socket.on('admin-stats', (stats) => {
+  document.getElementById('ctl-users').textContent = stats.onlineUsers || 0;
+  document.getElementById('ctl-peers').textContent = stats.peers || 0;
+  document.getElementById('ctl-projects').textContent = stats.projects || 0;
+  document.getElementById('ctl-logs').textContent = stats.logCount || 0;
 });
 
 // 管理员收到密码重置申请
@@ -1065,7 +1001,6 @@ socket.on('admin-reset-request', (req) => {
   container.style.display = 'block';
   const div = document.createElement('div');
   div.className = 'approve-item';
-  div.dataset.reqId = req.id;
   div.innerHTML = `
     <span class="ai-name">${esc(req.name)}</span>
     <span class="ai-text">请求重置密码: ${esc(req.reason)}</span>
@@ -1096,7 +1031,6 @@ socket.on('admin-resets-list', (requests) => {
   requests.forEach(req => {
     const div = document.createElement('div');
     div.className = 'approve-item';
-    div.dataset.reqId = req.id;
     div.innerHTML = `
       <span class="ai-name">${esc(req.name)}</span>
       <span class="ai-text">请求重置密码: ${esc(req.reason)}</span>
@@ -1115,14 +1049,6 @@ socket.on('admin-resets-list', (requests) => {
       if (list.children.length === 0) container.style.display = 'none';
     });
   });
-});
-
-// ─── 管理员统计控制面板 ──────────────────────────────
-socket.on('admin-stats', (stats) => {
-  document.getElementById('ctl-users').textContent = stats.onlineUsers || 0;
-  document.getElementById('ctl-peers').textContent = stats.peers || 0;
-  document.getElementById('ctl-projects').textContent = stats.projects || 0;
-  document.getElementById('ctl-logs').textContent = stats.logCount || 0;
 });
 
 // ─── 私聊系统 ──────────────────────────────────────────

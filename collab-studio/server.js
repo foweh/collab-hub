@@ -288,6 +288,10 @@ const io = new SocketIOServer(server, {
   cors: { origin: '*' },
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
+// ─── 页面路由（先于静态文件，防止被 index.html 覆盖）───
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 

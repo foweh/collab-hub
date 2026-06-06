@@ -8,32 +8,6 @@
 </head>
 <body>
 
-  <!-- ─── 登录弹窗 ─── -->
-  <div id="login-modal" class="modal-overlay" style="display:flex;z-index:10000">
-    <div class="login-card">
-      <div class="login-header">
-        <span class="login-icon">🎬</span>
-        <span class="login-title">协作创作工作室</span>
-      </div>
-      <div class="login-body">
-        <div class="login-field">
-          <label class="login-label">用户名</label>
-          <input type="text" id="login-name" class="login-input" placeholder="输入用户名..." maxlength="20" autofocus>
-        </div>
-        <div class="login-field">
-          <label class="login-label">密码</label>
-          <input type="password" id="login-pwd" class="login-input" placeholder="输入密码..." maxlength="50">
-        </div>
-        <div id="login-error" class="login-error" style="display:none"></div>
-        <button class="login-btn" id="login-btn">进入工作室</button>
-        <div class="login-links">
-          <a href="#" id="login-forgot-link" style="color:var(--text-dim);font-size:12px;text-decoration:none">忘记密码？</a>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─── 主界面 ─── -->
   <div id="app">
     <!-- 顶栏 -->
     <header id="topbar">
@@ -345,36 +319,6 @@
     </div>
   </div>
 
-  <!-- ─── 忘记密码弹窗 ─── -->
-  <div id="forgot-modal" class="modal-overlay" style="display:none">
-    <div class="forgot-card">
-      <div class="forgot-header">
-        <span class="forgot-icon">🔑</span>
-        <span class="forgot-title">申请重置密码</span>
-      </div>
-      <div class="forgot-body">
-        <div class="forgot-field">
-          <label class="forgot-label">用户名</label>
-          <input type="text" id="forgot-name" class="forgot-input" placeholder="你的用户名..." maxlength="20">
-        </div>
-        <div class="forgot-field">
-          <label class="forgot-label">新密码</label>
-          <input type="password" id="forgot-newpwd" class="forgot-input" placeholder="输入新密码..." maxlength="50">
-        </div>
-        <div class="forgot-field">
-          <label class="forgot-label">申请理由</label>
-          <input type="text" id="forgot-reason" class="forgot-input" placeholder="为什么要重置密码？..." maxlength="200">
-        </div>
-        <div id="forgot-error" class="login-error" style="display:none"></div>
-        <div class="forgot-actions">
-          <button class="forgot-btn cancel" id="forgot-cancel">取消</button>
-          <button class="forgot-btn primary" id="forgot-submit">提交申请</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ─── 私聊弹窗 ─── -->
   <div id="chat-modal" class="modal-overlay" style="display:none">
     <div class="chat-modal">
       <div class="chat-modal-header">

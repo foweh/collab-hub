@@ -392,34 +392,119 @@ function createDefaultProject(type, name) {
   socket.emit('project-create', { type, name, data: getDefaultData(type) });
 }
 
+// ─── 新建项目通用弹窗 ──────────────────────────────────
+const createModal    = document.getElementById('create-modal');
+const createIcon     = document.getElementById('create-icon');
+const createTitle    = document.getElementById('create-title');
+const createHint     = document.getElementById('create-hint');
+const createInput    = document.getElementById('create-input');
+const createConfirm  = document.getElementById('create-confirm');
+const createCancel   = document.getElementById('create-cancel');
+const createClose    = document.getElementById('create-close');
+
+let createCallback = null; // 确认时调用的函数
+
+function showCreateModal(opts) {
+  // opts: { icon, title, hint, placeholder, defaultName, confirmText, callback(name) }
+  createIcon.textContent    = opts.icon || '📄';
+  createTitle.textContent   = opts.title || '新建项目';
+  createHint.textContent    = opts.hint || '输入项目名称后点击确认。';
+  createInput.placeholder   = opts.placeholder || '输入项目名称...';
+  createInput.value         = opts.defaultName || '';
+  createConfirm.textContent = opts.confirmText || '创建';
+  createCallback            = opts.callback || null;
+  createModal.style.display = 'flex';
+  setTimeout(() => createInput.focus(), 100);
+}
+
+function closeCreateModal() {
+  createModal.style.display = 'none';
+  createCallback = null;
+}
+
+function confirmCreate() {
+  const name = createInput.value.trim();
+  const defaultName = createInput.placeholder.replace('输入', '').replace('名称...', '').trim() || '未命名';
+  const finalName = name || defaultName;
+  closeCreateModal();
+  if (createCallback) createCallback(finalName);
+}
+
+createConfirm.addEventListener('click', confirmCreate);
+createCancel.addEventListener('click', closeCreateModal);
+createClose.addEventListener('click', closeCreateModal);
+createModal.addEventListener('click', (e) => {
+  if (e.target === createModal) closeCreateModal();
+});
+createInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') confirmCreate();
+  if (e.key === 'Escape') closeCreateModal();
+});
+
 $('#new-script-btn').addEventListener('click', () => {
-  const name = prompt('剧本名称:', '新剧本');
-  if (name) socket.emit('project-create', { type: 'script', name, data: getDefaultData('script') });
+  showCreateModal({
+    icon: '📜', title: '新建剧本', hint: '创建一个新的空白剧本项目。',
+    placeholder: '输入剧本名称...', defaultName: '新剧本',
+    callback: (name) => socket.emit('project-create', { type: 'script', name, data: getDefaultData('script') }),
+  });
 });
 $('#new-mindmap-btn').addEventListener('click', () => {
-  const name = prompt('思维导图名称:', '新思维导图');
-  if (name) socket.emit('project-create', { type: 'mindmap', name, data: getDefaultData('mindmap') });
+  showCreateModal({
+    icon: '🧠', title: '新建思维导图', hint: '创建一个新的空白思维导图项目。',
+    placeholder: '输入思维导图名称...', defaultName: '新思维导图',
+    callback: (name) => socket.emit('project-create', { type: 'mindmap', name, data: getDefaultData('mindmap') }),
+  });
 });
 $('#new-story-btn').addEventListener('click', () => {
-  const name = prompt('故事名称:', '新故事');
-  if (name) socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') });
+  showCreateModal({
+    icon: '📖', title: '新建故事', hint: '创建一个新的空白故事项目。',
+    placeholder: '输入故事名称...', defaultName: '新故事',
+    callback: (name) => socket.emit('project-create', { type: 'story', name, data: getDefaultData('story') }),
+  });
 });
 $('#new-folder-btn').addEventListener('click', () => {
-  const name = prompt('文件夹名称:', '新文件夹');
-  if (name) socket.emit('project-create', { type: 'folder', name, data: getDefaultData('folder') });
+  showCreateModal({
+    icon: '📁', title: '新建文件夹', hint: '创建一个空文件夹容器，可自行添加内容。',
+    placeholder: '输入文件夹名称...', defaultName: '新文件夹',
+    callback: (name) => socket.emit('project-create', { type: 'folder', name, data: getDefaultData('folder') }),
+  });
 });
 $('#new-shooting-plan-btn').addEventListener('click', () => {
-  const name = prompt('拍摄计划名称:', '新拍摄计划');
-  if (name) {
-    socket.emit('project-create-batch', {
-      name,
-      children: [
-        { type: 'script', name: name + ' - 剧本' },
-        { type: 'mindmap', name: name + ' - 思维导图' },
-        { type: 'story', name: name + ' - 故事' },
-      ]
-    });
-  }
+  showCreateModal({
+    icon: '📋', title: '新建拍摄计划', hint: '将自动创建剧本 + 思维导图 + 故事三个子项目。',
+    placeholder: '输入拍摄计划名称...', defaultName: '新拍摄计划',
+    confirmText: '创建',
+    callback: (name) => {
+      socket.emit('project-create-batch', {
+        name,
+        children: [
+          { type: 'script', name: name + ' - 剧本' },
+          { type: 'mindmap', name: name + ' - 思维导图' },
+          { type: 'story', name: name + ' - 故事' },
+        ]
+      });
+    },
+  });
+});
+$('#new-storyboard-btn').addEventListener('click', () => {
+  showCreateModal({
+    icon: '🎬', title: '新建分镜', hint: '创建一个新的分镜项目，将跳转到分镜编辑工具。',
+    placeholder: '输入分镜项目名称...', defaultName: '未命名分镜',
+    confirmText: '创建并打开',
+    callback: () => {
+      // 跳转到分镜面板
+      navBtns.forEach(b => b.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      document.getElementById('nav-storyboard').classList.add('active');
+      document.getElementById('panel-storyboard').classList.add('active');
+      const frame = document.querySelector('#storyboard-frame iframe');
+      if (frame) {
+        const src = frame.src;
+        frame.src = '';
+        setTimeout(() => { frame.src = src; }, 50);
+      }
+    },
+  });
 });
 
 

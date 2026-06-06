@@ -232,6 +232,11 @@ socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
 });
 
 socket.on('login-error', (msg) => {
+  // 管理员免密登录失败 → 显示密码输入框，不跳转
+  if (isAdmin && msg === '管理员密码错误') {
+    showAdminPasswordPrompt();
+    return;
+  }
   // 登录失败，清除凭证并跳转到登录页
   sessionStorage.removeItem('collab-auth');
   showAlert(msg, '登录失败', '❌');
@@ -836,6 +841,43 @@ function showConfirm(text, title, icon) {
       if (e.target === confirmModal) { cleanup(); resolve(false); }
     };
   });
+}
+
+// ─── 管理员免密登录失败 → 内联密码输入 ────────────────────
+function showAdminPasswordPrompt() {
+  const modal = document.getElementById('admin-pwd-modal');
+  const input = document.getElementById('admin-pwd-input');
+  const error = document.getElementById('admin-pwd-error');
+  if (!modal || !input) return;
+
+  modal.style.display = 'flex';
+  input.value = '';
+  error.style.display = 'none';
+  setTimeout(() => input.focus(), 200);
+
+  const confirmBtn = document.getElementById('admin-pwd-confirm');
+  const cancelBtn = document.getElementById('admin-pwd-cancel');
+
+  const doLogin = () => {
+    const pwd = input.value.trim();
+    if (!pwd) {
+      error.textContent = '请输入密码';
+      error.style.display = 'block';
+      return;
+    }
+    error.style.display = 'none';
+    socket.emit('join', { name: myName, password: pwd, fingerprint: myFingerprint });
+    modal.style.display = 'none';
+  };
+
+  confirmBtn.onclick = doLogin;
+  cancelBtn.onclick = () => {
+    modal.style.display = 'none';
+    sessionStorage.removeItem('collab-auth');
+    window.location.href = '/';
+  };
+  input.onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
+  modal.onclick = (e) => { if (e.target === modal) { modal.style.display = 'none'; } };
 }
 
 // ─── 模块注册 ────────────────────────────────────────────

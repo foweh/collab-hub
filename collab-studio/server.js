@@ -15,6 +15,8 @@ const DATA_DIR = path.join(__dirname, 'data');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const FENJING_FILE = path.join(DATA_DIR, 'fenjing-state.json');
+const PWD_RESETS_FILE = path.join(DATA_DIR, 'password-resets.json');
+const MSG_PERM_FILE = path.join(DATA_DIR, 'message-permissions.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -57,6 +59,49 @@ function saveFenjingState(state) {
   try {
     fs.writeFileSync(FENJING_FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch (e) { console.error('[分镜持久化] 写入失败', e.message); }
+}
+
+// ─── 密码重置申请持久化 ──────────────────────────────
+let passwordResets = []; // { id, name, newPassword, reason, time }
+let pwdResetId = 0;
+
+function loadPasswordResets() {
+  try {
+    if (fs.existsSync(PWD_RESETS_FILE)) {
+      const raw = fs.readFileSync(PWD_RESETS_FILE, 'utf-8');
+      return JSON.parse(raw);
+    }
+  } catch (e) { console.error('[密码重置] 读取失败', e.message); }
+  return [];
+}
+passwordResets = loadPasswordResets();
+if (passwordResets.length > 0) {
+  pwdResetId = Math.max(...passwordResets.map(r => r.id || 0));
+}
+
+function savePasswordResets() {
+  try {
+    fs.writeFileSync(PWD_RESETS_FILE, JSON.stringify(passwordResets, null, 2), 'utf-8');
+  } catch (e) { console.error('[密码重置] 写入失败', e.message); }
+}
+
+// ─── 消息权限持久化 ──────────────────────────────────
+let messagePermissions = {}; // "from→to" → true
+
+function loadMsgPermissions() {
+  try {
+    if (fs.existsSync(MSG_PERM_FILE)) {
+      return JSON.parse(fs.readFileSync(MSG_PERM_FILE, 'utf-8'));
+    }
+  } catch (e) { console.error('[消息权限] 读取失败', e.message); }
+  return {};
+}
+messagePermissions = loadMsgPermissions();
+
+function saveMsgPermissions() {
+  try {
+    fs.writeFileSync(MSG_PERM_FILE, JSON.stringify(messagePermissions, null, 2), 'utf-8');
+  } catch (e) { console.error('[消息权限] 写入失败', e.message); }
 }
 
 // ─── 用户管理（密码/指纹/拉黑）────────────────────────
@@ -166,6 +211,38 @@ function broadcastOnlineUsers() {
 const operationLog = [];
 const MAX_LOG = 500;
 let logId = 0;
+const LOG_FILE = path.join(DATA_DIR, 'operation-log.json');
+
+// 从文件加载历史日志
+function loadOperationLog() {
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      const raw = fs.readFileSync(LOG_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        data.forEach(e => { if (e.id > logId) logId = e.id; });
+        return data;
+      }
+    }
+  } catch (e) { console.error('[日志持久化] 读取失败', e.message); }
+  return [];
+}
+// 追加写入（文件只保留最近的 MAX_LOG 条）
+function appendOperationLog(entry) {
+  try {
+    let log = [];
+    if (fs.existsSync(LOG_FILE)) {
+      try { log = JSON.parse(fs.readFileSync(LOG_FILE, 'utf-8')); } catch(_) {}
+    }
+    log.push(entry);
+    if (log.length > MAX_LOG) log = log.slice(log.length - MAX_LOG);
+    fs.writeFileSync(LOG_FILE, JSON.stringify(log, null, 2), 'utf-8');
+  } catch (e) { /* 静默 */ }
+}
+
+// 初始化时加载历史日志到内存
+const savedLogs = loadOperationLog();
+savedLogs.forEach(e => operationLog.push(e));
 
 function addLog(userId, userName, action, module, target) {
   const entry = {
@@ -179,6 +256,8 @@ function addLog(userId, userName, action, module, target) {
   };
   operationLog.push(entry);
   if (operationLog.length > MAX_LOG) operationLog.splice(0, 100);
+  // 持久化到文件
+  appendOperationLog(entry);
   // 广播给所有浏览器
   io.emit('operation-log', entry);
   return entry;
@@ -351,9 +430,20 @@ io.on('connection', (socket) => {
         return;
       }
     } else {
-      // 普通用户，自动注册
-      if (!users[userName]) {
-        users[userName] = { password: hashPwd(password || ''), isAdmin: false, fingerprint: '', isBanned: false };
+      // 普通用户
+      if (users[userName]) {
+        // 已存在 → 验证密码
+        if (!validatePassword(userName, password || '')) {
+          socket.emit('login-error', '密码错误，请重试');
+          return;
+        }
+      } else {
+        // 新用户 → 需要密码注册
+        if (!password) {
+          socket.emit('login-error', '新用户需要设置密码');
+          return;
+        }
+        users[userName] = { password: hashPwd(password), isAdmin: false, fingerprint: '', isBanned: false };
       }
     }
     // 更新指纹
@@ -540,6 +630,143 @@ io.on('connection', (socket) => {
       }
     }
     addLog(socket.id, name, 'sent message to admin', 'system', msg.text.slice(0, 30));
+  });
+
+  // ── 忘记密码申请 ──
+  socket.on('forgot-password-request', ({ name, newPassword, reason }) => {
+    const userName = (name || '').trim();
+    if (!userName || !users[userName]) {
+      socket.emit('forgot-password-result', { ok: false, error: '用户不存在' });
+      return;
+    }
+    if (users[userName] && users[userName].isAdmin) {
+      socket.emit('forgot-password-result', { ok: false, error: '管理员不能通过此方式重置密码' });
+      return;
+    }
+    const req = {
+      id: ++pwdResetId,
+      name: userName,
+      newPassword: newPassword || '',
+      reason: reason || '',
+      time: Date.now(),
+    };
+    passwordResets.push(req);
+    savePasswordResets();
+    socket.emit('forgot-password-result', { ok: true });
+    addLog(socket.id, socket.userName, 'requested password reset', 'system', userName);
+    // 通知所有管理员
+    for (const [sid, u] of onlineUsers) {
+      if (u.isAdmin) {
+        io.to(sid).emit('admin-reset-request', req);
+      }
+    }
+  });
+
+  // ── 管理员查看所有重置申请 ──
+  socket.on('admin-list-resets', () => {
+    if (!socket.isAdmin) return;
+    socket.emit('admin-resets-list', passwordResets);
+  });
+
+  // ── 管理员审批密码重置 ──
+  socket.on('admin-approve-reset', ({ requestId, name, newPassword, approve }) => {
+    if (!socket.isAdmin) return;
+    // 移除申请
+    passwordResets = passwordResets.filter(r => r.id !== requestId);
+    savePasswordResets();
+    if (approve && name && users[name] && !users[name].isAdmin) {
+      users[name].password = hashPwd(newPassword || '');
+      saveUsers();
+      addLog(socket.id, socket.userName, 'approved password reset', 'system', name);
+      // 通知被改密码的用户
+      for (const [sid, u] of onlineUsers) {
+        if (u.name === name) {
+          io.to(sid).emit('kicked', '管理员已重置你的密码，请重新登录');
+        }
+      }
+    } else {
+      addLog(socket.id, socket.userName, 'rejected password reset', 'system', name || 'unknown');
+    }
+  });
+
+  // ── 用户对用户私聊 ──
+  socket.on('user-message-to-user', ({ target, text }) => {
+    if (!socket.userName || !target || !text) return;
+    const from = socket.userName;
+    const msg = { from, text: text.trim(), time: Date.now() };
+    if (!msg.text) return;
+    // 发送给目标用户
+    for (const [sid, u] of onlineUsers) {
+      if (u.name === target) {
+        io.to(sid).emit('user-incoming-msg', msg);
+        break;
+      }
+    }
+    addLog(socket.id, from, 'sent message to', 'system', target);
+  });
+
+  // ── 检查消息权限 ──
+  socket.on('check-message-permission', ({ target }) => {
+    if (!socket.userName) return;
+    const from = socket.userName;
+    const key = `${from}→${target}`;
+    const permitted = !!messagePermissions[key];
+    socket.emit('message-permission-status', { target, permitted });
+  });
+
+  // ── 请求消息权限 ──
+  socket.on('request-message-permission', ({ target }) => {
+    if (!socket.userName) return;
+    const from = socket.userName;
+    const key = `${from}→${target}`;
+    if (messagePermissions[key]) {
+      socket.emit('message-permission-granted', { target });
+      return;
+    }
+    // 通知所有管理员
+    for (const [sid, u] of onlineUsers) {
+      if (u.isAdmin) {
+        io.to(sid).emit('admin-permission-request', { from, target });
+      }
+    }
+  });
+
+  // ── 管理员审批消息权限 ──
+  socket.on('admin-approve-permission', ({ from, target, approve }) => {
+    if (!socket.isAdmin) return;
+    const key = `${from}→${target}`;
+    if (approve) {
+      messagePermissions[key] = true;
+      saveMsgPermissions();
+      // 通知申请人
+      for (const [sid, u] of onlineUsers) {
+        if (u.name === from) {
+          io.to(sid).emit('message-permission-granted', { target });
+          break;
+        }
+      }
+      addLog(socket.id, socket.userName, 'approved message permission', 'system', `${from}→${target}`);
+    } else {
+      // 通知申请人被拒绝
+      for (const [sid, u] of onlineUsers) {
+        if (u.name === from) {
+          io.to(sid).emit('message-permission-denied', { target });
+          break;
+        }
+      }
+      addLog(socket.id, socket.userName, 'rejected message permission', 'system', `${from}→${target}`);
+    }
+  });
+
+  // ── 管理员获取统计信息 ──
+  socket.on('admin-get-stats', () => {
+    if (!socket.isAdmin) return;
+    socket.emit('admin-stats', {
+      onlineUsers: onlineUsers.size,
+      peers: peers.size,
+      projects: projects.length,
+      logCount: operationLog.length,
+    });
   });
 
   // 断开连接时自动释放此 socket 的所有锁

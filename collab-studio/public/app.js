@@ -202,22 +202,54 @@ const myFingerprint = generateFingerprint();
 let isAdmin = false;
 let myPwd = '';
 
-// 从 localStorage 恢复或生成随机用户名，但排除管理员名
+// 从 localStorage 恢复用户名
 let savedName = localStorage.getItem('collab-user-name');
-if (!savedName || savedName === '热合曼') {
-  savedName = `用户${Math.random().toString(36).slice(2, 5)}`;
-  localStorage.setItem('collab-user-name', savedName);
+if (!savedName) {
+  savedName = '';
 }
 myName = savedName;
 
-// 连接后自动加入（不自动发密码，管理员通过 👑 按钮登录）
+// ─── 登录弹窗控制 ──────────────────────────────────────
+const loginModal = document.getElementById('login-modal');
+const loginName = document.getElementById('login-name');
+const loginPwd = document.getElementById('login-pwd');
+const loginError = document.getElementById('login-error');
+const loginBtn = document.getElementById('login-btn');
+
+function showLoginError(msg) {
+  loginError.textContent = msg;
+  loginError.style.display = 'block';
+  loginBtn.disabled = false;
+  loginBtn.textContent = '进入工作室';
+}
+
+function doLogin() {
+  const name = loginName.value.trim();
+  const pwd = loginPwd.value;
+  if (!name) { showLoginError('请输入用户名'); return; }
+  if (!pwd) { showLoginError('请输入密码'); return; }
+  loginBtn.disabled = true;
+  loginBtn.textContent = '登录中...';
+  loginError.style.display = 'none';
+  localStorage.setItem('collab-user-name', name);
+  myName = name;
+  myPwd = pwd;
+  socket.emit('join', { name, password: pwd, fingerprint: myFingerprint });
+}
+
+loginBtn.addEventListener('click', doLogin);
+loginPwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+loginName.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginPwd.focus(); });
+
+// 连接后显示登录弹窗（不自动加入）
 socket.on('connect', () => {
-  socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+  // 不自动join，等待用户操作
 });
 
 // 服务器验证结果
 socket.on('login-success', ({ userName, isAdmin: admin }) => {
   isAdmin = admin;
+  loginModal.style.display = 'none';
   app.style.display = 'flex';
   selfBadge.textContent = isAdmin ? `👑 ${userName}` : `👤 ${userName}`;
   if (isAdmin) selfBadge.className = 'badge admin';
@@ -231,19 +263,28 @@ socket.on('login-success', ({ userName, isAdmin: admin }) => {
   const contactInput = document.getElementById('contact-admin-input');
   if (contactBtn) contactBtn.onclick = sendToAdmin;
   if (contactInput) contactInput.onkeydown = (e) => { if (e.key === 'Enter') sendToAdmin(); };
+  
+  // 请求管理员统计
+  if (isAdmin) {
+    socket.emit('admin-get-stats');
+  }
+  
+  // 请求密码重置审批列表
+  if (isAdmin) {
+    socket.emit('admin-list-resets');
+  }
 });
 
 socket.on('login-error', (msg) => {
-  showAlert(msg, '登录失败', '❌');
-  // 恢复普通用户状态
-  localStorage.removeItem('collab-user-pwd');
-  myName = localStorage.getItem('collab-user-name') || `用户${Math.random().toString(36).slice(2, 5)}`;
-  socket.emit('join', { name: myName, password: '', fingerprint: myFingerprint });
+  showLoginError(msg);
 });
 
 socket.on('kicked', (msg) => {
   showAlert(msg, '已被踢出', '🚫');
-  location.reload();
+  loginModal.style.display = 'flex';
+  loginBtn.disabled = false;
+  loginBtn.textContent = '进入工作室';
+  app.style.display = 'none';
 });
 
 // ─── Socket 事件 ─────────────────────────────────────────
@@ -629,13 +670,11 @@ document.getElementById('lang-toggle-btn').addEventListener('click', () => {
 // ─── 管理员登录 ────────────────────────────────────────
 document.getElementById('admin-login-btn').addEventListener('click', () => {
   if (isAdmin) { showAlert('你已是管理员', '提示', '👑'); return; }
-  const name = prompt('管理员账号：', '热合曼');
-  if (!name) return;
-  const pwd = prompt('密码：');
-  if (!pwd) return;
-  localStorage.setItem('collab-user-pwd', pwd);
-  localStorage.setItem('collab-user-name', name);
-  socket.emit('join', { name, password: pwd, fingerprint: myFingerprint });
+  loginName.value = '热合曼';
+  loginPwd.value = '';
+  loginError.style.display = 'none';
+  loginModal.style.display = 'flex';
+  loginPwd.focus();
 });
 
 // ─── 多设备 UI ──────────────────────────────────────────
@@ -844,48 +883,6 @@ window.registerCollabModule = function(name, api) {
   CollabStudio.modules[name] = api;
 };
 
-// ─── 在线用户渲染 ────────────────────────────────────────
-function renderOnlineUsers() {
-  const container = document.getElementById('online-users-area');
-  if (!container) return;
-  
-  const count = onlineUsers.length;
-  // 更新顶栏 badge
-  const badge = document.getElementById('online-badge');
-  if (badge) {
-    if (count > 0) {
-      badge.style.display = 'inline';
-      badge.className = 'badge online';
-      badge.textContent = `👥 ${count} 人在线`;
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-  
-  // 渲染右侧列表
-  if (count === 0) {
-    container.innerHTML = '<div class="status-none">⏳ 等待其他人加入…</div>';
-    return;
-  }
-  
-  let html = '';
-  onlineUsers.forEach(u => {
-    const isMe = u.name === myName;
-    const isAdminUser = u.isAdmin;
-    let icon, label;
-    if (isMe && isAdminUser) { icon = '👑'; label = `${esc(u.name)} (管理员/我)`; }
-    else if (isMe)           { icon = '⭐'; label = `${esc(u.name)} (我)`; }
-    else if (isAdminUser)    { icon = '👑'; label = `${esc(u.name)} (管理员)`; }
-    else                     { icon = '🟢'; label = esc(u.name); }
-    html += `<div class="online-user-item">
-      <span class="online-user-dot">${icon}</span>
-      <span class="online-user-name">${label}</span>
-    </div>`;
-  });
-  container.innerHTML = html;
-}
-
-// ─── 管理员面板 ────────────────────────────────────────
 function renderAdminPanel() {
   const container = document.getElementById('admin-panel');
   if (!container) return;
@@ -1010,5 +1007,313 @@ document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back').
     document.querySelector('.nav-btn[data-module="projects"]').classList.add('active');
     document.getElementById('panel-projects').classList.add('active');
     renderProjects();
+  });
+});
+
+// ─── 忘记密码 ──────────────────────────────────────────
+const forgotModal = document.getElementById('forgot-modal');
+const forgotName = document.getElementById('forgot-name');
+const forgotNewpwd = document.getElementById('forgot-newpwd');
+const forgotReason = document.getElementById('forgot-reason');
+const forgotError = document.getElementById('forgot-error');
+const forgotSubmit = document.getElementById('forgot-submit');
+const forgotCancel = document.getElementById('forgot-cancel');
+
+document.getElementById('login-forgot-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  forgotName.value = loginName.value || '';
+  forgotNewpwd.value = '';
+  forgotReason.value = '';
+  forgotError.style.display = 'none';
+  forgotModal.style.display = 'flex';
+});
+
+forgotCancel.addEventListener('click', () => {
+  forgotModal.style.display = 'none';
+});
+
+forgotSubmit.addEventListener('click', () => {
+  const name = forgotName.value.trim();
+  const newPwd = forgotNewpwd.value;
+  const reason = forgotReason.value.trim();
+  if (!name) { forgotError.textContent = '请输入用户名'; forgotError.style.display = 'block'; return; }
+  if (!newPwd) { forgotError.textContent = '请输入新密码'; forgotError.style.display = 'block'; return; }
+  if (!reason) { forgotError.textContent = '请输入申请理由'; forgotError.style.display = 'block'; return; }
+  forgotError.style.display = 'none';
+  forgotSubmit.disabled = true;
+  forgotSubmit.textContent = '提交中...';
+  socket.emit('forgot-password-request', { name, newPassword: newPwd, reason });
+});
+
+socket.on('forgot-password-result', (msg) => {
+  forgotSubmit.disabled = false;
+  forgotSubmit.textContent = '提交申请';
+  if (msg.ok) {
+    forgotModal.style.display = 'none';
+    showAlert('申请已提交，请等待管理员审批', '申请成功', '✅');
+  } else {
+    forgotError.textContent = msg.error || '提交失败';
+    forgotError.style.display = 'block';
+  }
+});
+
+// 管理员收到密码重置申请
+socket.on('admin-reset-request', (req) => {
+  const container = document.getElementById('admin-resets');
+  const list = document.getElementById('admin-resets-list');
+  if (!container || !list) return;
+  container.style.display = 'block';
+  const div = document.createElement('div');
+  div.className = 'approve-item';
+  div.dataset.reqId = req.id;
+  div.innerHTML = `
+    <span class="ai-name">${esc(req.name)}</span>
+    <span class="ai-text">请求重置密码: ${esc(req.reason)}</span>
+    <button class="ai-approve" data-id="${req.id}" data-name="${esc(req.name)}" data-pwd="${esc(req.newPassword)}">批准</button>
+    <button class="ai-reject" data-id="${req.id}" data-name="${esc(req.name)}">拒绝</button>
+  `;
+  list.appendChild(div);
+  div.querySelector('.ai-approve').addEventListener('click', () => {
+    socket.emit('admin-approve-reset', { requestId: req.id, name: req.name, newPassword: req.newPassword, approve: true });
+    div.remove();
+    if (list.children.length === 0) container.style.display = 'none';
+  });
+  div.querySelector('.ai-reject').addEventListener('click', () => {
+    socket.emit('admin-approve-reset', { requestId: req.id, name: req.name, approve: false });
+    div.remove();
+    if (list.children.length === 0) container.style.display = 'none';
+  });
+});
+
+// 管理员批量接收重置申请列表
+socket.on('admin-resets-list', (requests) => {
+  const container = document.getElementById('admin-resets');
+  const list = document.getElementById('admin-resets-list');
+  if (!container || !list) return;
+  list.innerHTML = '';
+  if (!requests || requests.length === 0) { container.style.display = 'none'; return; }
+  container.style.display = 'block';
+  requests.forEach(req => {
+    const div = document.createElement('div');
+    div.className = 'approve-item';
+    div.dataset.reqId = req.id;
+    div.innerHTML = `
+      <span class="ai-name">${esc(req.name)}</span>
+      <span class="ai-text">请求重置密码: ${esc(req.reason)}</span>
+      <button class="ai-approve" data-id="${req.id}" data-name="${esc(req.name)}" data-pwd="${esc(req.newPassword)}">批准</button>
+      <button class="ai-reject" data-id="${req.id}" data-name="${esc(req.name)}">拒绝</button>
+    `;
+    list.appendChild(div);
+    div.querySelector('.ai-approve').addEventListener('click', () => {
+      socket.emit('admin-approve-reset', { requestId: req.id, name: req.name, newPassword: req.newPassword, approve: true });
+      div.remove();
+      if (list.children.length === 0) container.style.display = 'none';
+    });
+    div.querySelector('.ai-reject').addEventListener('click', () => {
+      socket.emit('admin-approve-reset', { requestId: req.id, name: req.name, approve: false });
+      div.remove();
+      if (list.children.length === 0) container.style.display = 'none';
+    });
+  });
+});
+
+// ─── 管理员统计控制面板 ──────────────────────────────
+socket.on('admin-stats', (stats) => {
+  document.getElementById('ctl-users').textContent = stats.onlineUsers || 0;
+  document.getElementById('ctl-peers').textContent = stats.peers || 0;
+  document.getElementById('ctl-projects').textContent = stats.projects || 0;
+  document.getElementById('ctl-logs').textContent = stats.logCount || 0;
+});
+
+// ─── 私聊系统 ──────────────────────────────────────────
+const chatModal = document.getElementById('chat-modal');
+const chatModalTitle = document.getElementById('chat-modal-title');
+const chatMsgs = document.getElementById('chat-msgs');
+const chatInput = document.getElementById('chat-input');
+const chatSendBtn = document.getElementById('chat-send-btn');
+let chatTargetUser = null;
+let chatPartnerName = '';
+let hasMsgPermit = false; // 是否有发消息权限
+let msgPermitRequested = false;
+
+// 关闭私聊
+document.getElementById('chat-modal-close').addEventListener('click', () => {
+  chatModal.style.display = 'none';
+});
+
+// 点击在线用户 → 打开私聊
+function renderOnlineUsers() {
+  const container = document.getElementById('online-users-area');
+  if (!container) return;
+  
+  const count = onlineUsers.length;
+  const badge = document.getElementById('online-badge');
+  if (badge) {
+    if (count > 0) {
+      badge.style.display = 'inline';
+      badge.className = 'badge online';
+      badge.textContent = `👥 ${count} 人在线`;
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+  
+  if (count === 0) {
+    container.innerHTML = '<div class="status-none">⏳ 等待其他人加入…</div>';
+    return;
+  }
+  
+  let html = '';
+  onlineUsers.forEach(u => {
+    const isMe = u.name === myName;
+    const isAdminUser = u.isAdmin;
+    let icon, label;
+    if (isMe && isAdminUser) { icon = '👑'; label = `${esc(u.name)} (管理员/我)`; }
+    else if (isMe)           { icon = '⭐'; label = `${esc(u.name)} (我)`; }
+    else if (isAdminUser)    { icon = '👑'; label = `${esc(u.name)} (管理员)`; }
+    else                     { icon = '🟢'; label = esc(u.name); }
+    const chatBtn = isMe ? '' : `<button class="chat-start-btn" data-name="${esc(u.name)}" style="margin-left:auto;padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text-dim);cursor:pointer;font-size:11px">💬</button>`;
+    html += `<div class="online-user-item">
+      <span class="online-user-dot">${icon}</span>
+      <span class="online-user-name">${label}</span>
+      ${chatBtn}
+    </div>`;
+  });
+  container.innerHTML = html;
+  
+  // 绑定私聊按钮
+  container.querySelectorAll('.chat-start-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetName = btn.dataset.name;
+      openChat(targetName);
+    });
+  });
+}
+
+function openChat(targetName) {
+  chatTargetUser = onlineUsers.find(u => u.name === targetName);
+  chatPartnerName = targetName;
+  chatModalTitle.textContent = `💬 与 ${esc(targetName)} 聊天`;
+  chatMsgs.innerHTML = '';
+  
+  // 检查是否是管理员（管理员不需要权限）
+  if (isAdmin) {
+    hasMsgPermit = true;
+    chatSendBtn.disabled = false;
+  } else {
+    // 非管理员需要权限
+    checkMsgPermission(targetName);
+  }
+  
+  chatInput.value = '';
+  chatModal.style.display = 'flex';
+  setTimeout(() => chatInput.focus(), 200);
+}
+
+function checkMsgPermission(targetName) {
+  // 检查是否有缓存权限
+  const permitKey = `msg-permit-${targetName}`;
+  const cached = sessionStorage.getItem(permitKey);
+  if (cached === 'true') {
+    hasMsgPermit = true;
+    chatSendBtn.disabled = false;
+    return;
+  }
+  
+  // 请求服务器检查权限
+  socket.emit('check-message-permission', { target: targetName });
+}
+
+socket.on('message-permission-status', ({ target, permitted }) => {
+  if (target !== chatPartnerName) return;
+  hasMsgPermit = permitted;
+  chatSendBtn.disabled = !permitted;
+  if (!permitted && !msgPermitRequested) {
+    // 显示提示，并自动请求
+    const hint = document.createElement('div');
+    hint.className = 'chat-msg system';
+    hint.textContent = '⏳ 需要管理员批准才能发送消息，正在请求权限…';
+    chatMsgs.appendChild(hint);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+    msgPermitRequested = true;
+    socket.emit('request-message-permission', { target });
+  }
+});
+
+socket.on('message-permission-granted', ({ target }) => {
+  if (target !== chatPartnerName && target !== myName) return;
+  hasMsgPermit = true;
+  chatSendBtn.disabled = false;
+  const permitKey = `msg-permit-${chatPartnerName}`;
+  sessionStorage.setItem(permitKey, 'true');
+  const hint = document.createElement('div');
+  hint.className = 'chat-msg system';
+  hint.textContent = '✅ 管理员已批准消息权限，现在可以发送消息了';
+  chatMsgs.appendChild(hint);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+});
+
+socket.on('message-permission-denied', ({ target }) => {
+  if (target !== chatPartnerName) return;
+  hasMsgPermit = false;
+  chatSendBtn.disabled = true;
+  msgPermitRequested = false;
+  const hint = document.createElement('div');
+  hint.className = 'chat-msg system';
+  hint.textContent = '❌ 管理员拒绝了消息权限申请';
+  chatMsgs.appendChild(hint);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+});
+
+// 发送私聊消息
+function sendChatMsg() {
+  const text = chatInput.value.trim();
+  if (!text || !chatTargetUser) return;
+  if (!hasMsgPermit && !isAdmin) {
+    showAlert('需要管理员批准才能发送消息', '提示', '⚠️');
+    return;
+  }
+  chatInput.value = '';
+  
+  // 本地显示
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = `<span class="cm-from">我</span> <span class="cm-text">${esc(text)}</span> <span class="cm-time">${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>`;
+  chatMsgs.appendChild(div);
+  chatMsgs.scrollTop = chatMsgs.scrollHeight;
+  
+  // 通过服务器转发
+  socket.emit('user-message-to-user', { target: chatPartnerName, text });
+}
+
+chatSendBtn.addEventListener('click', sendChatMsg);
+chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChatMsg(); });
+
+// 收到私聊消息
+socket.on('user-incoming-msg', (msg) => {
+  const from = msg.from;
+  
+  // 如果聊天窗口已打开且是对应人，直接显示
+  if (chatModal.style.display === 'flex' && chatPartnerName === from) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+    div.innerHTML = `<span class="cm-from">${esc(from)}</span> <span class="cm-text">${esc(msg.text)}</span> <span class="cm-time">${new Date(msg.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>`;
+    chatMsgs.appendChild(div);
+    chatMsgs.scrollTop = chatMsgs.scrollHeight;
+  } else {
+    // 否则显示通知
+    showAlert(`来自 ${esc(from)} 的消息: ${esc(msg.text)}`, '新消息', '💬');
+  }
+});
+
+// ─── 管理员审批消息权限 ──────────────────────────────
+socket.on('admin-permission-request', ({ from, target }) => {
+  if (!isAdmin) return;
+  showConfirm(
+    `用户 ${esc(from)} 请求向 ${esc(target)} 发送消息，是否批准？`,
+    '消息权限申请',
+    '💬'
+  ).then(approved => {
+    socket.emit('admin-approve-permission', { from, target, approve: approved });
   });
 });

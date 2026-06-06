@@ -315,6 +315,10 @@ socket.on('project-deleted', (id) => {
   renderProjects();
 });
 
+function canDeleteProject(p) {
+  return isAdmin;
+}
+
 socket.on('transfer-sent', (data) => {
   showAlert(`${data.count} 个项目已发送给 ${data.to}`, '发送成功', '✅');
 });
@@ -332,6 +336,21 @@ socket.on('project-restored', (id) => {
 socket.on('project-permanently-deleted', (id) => {
   projects = projects.filter(x => x.id !== id);
   renderProjects();
+});
+
+// ── 可见性变更 ──
+socket.on('project-visibility-changed', ({ projectId, visibility }) => {
+  const p = projects.find(x => x.id === projectId);
+  if (p) p.visibility = visibility;
+  renderProjects();
+});
+
+// ── 撤回/恢复结果 ──
+socket.on('project-undo-result', (data) => {
+  if (data.ok) showAlert('操作已撤回', '撤回成功', '↩️');
+});
+socket.on('project-redo-result', (data) => {
+  if (data.ok) showAlert('操作已恢复', '恢复成功', '↪️');
 });
 
 // ── 扫描状态 ──
@@ -558,7 +577,7 @@ function renderProjects() {
 
   const visibleProjects = showingTrash
     ? projects.filter(p => p.deleted)
-    : projects.filter(p => !p.deleted);
+    : projects.filter(p => !p.deleted && (isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private')));
 
   if (visibleProjects.length === 0) {
     projectList.innerHTML = showingTrash
@@ -567,15 +586,20 @@ function renderProjects() {
     return;
   }
 
+  const visIcons = { 'private': '🔒', 'public-read': '👁️', 'public-edit': '✏️' };
+  const visLabels = { 'private': '私密', 'public-read': '公开-只读', 'public-edit': '公开-可编辑' };
+
   if (!showingTrash) {
-    // 正常视图：先画文件夹，再画其他项目
     const folders = visibleProjects.filter(p => p.type === 'folder');
     const standalone = visibleProjects.filter(p => p.type !== 'folder' && !p.parentId);
-    // 渲染文件夹
     folders.forEach(f => {
       const card = document.createElement('div');
       card.className = 'project-card folder';
       const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
+      const canChange = isAdmin || f.owner === myName;
+      const visOpts = ['private', 'public-read', 'public-edit'].map(v =>
+        `<option value="${v}"${(f.visibility||'private') === v ? ' selected' : ''}>${visLabels[v]}</option>`
+      ).join('');
       card.innerHTML = `
         <span class="p-type">📁</span>
         <button class="p-del" data-id="${f.id}">×</button>
@@ -583,13 +607,15 @@ function renderProjects() {
         <div class="p-meta">文件夹 · ${childCount} 个项目 · ${timeAgo(f.updatedAt)}</div>
         <div class="p-owner">${esc(f.owner || '我')}</div>
       `;
-      card.querySelector('.p-del').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
-          (f.data && f.data.children || []).forEach(cid => socket.emit('project-delete', cid));
-          socket.emit('project-delete', f.id);
-        }
-      });
+      if (canDeleteProject(f)) {
+        card.querySelector('.p-del').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
+            (f.data && f.data.children || []).forEach(cid => socket.emit('project-delete', cid));
+            socket.emit('project-delete', f.id);
+          }
+        });
+      } else { card.querySelector('.p-del').style.display = 'none'; }
       card.addEventListener('click', () => openProject(f));
       projectList.appendChild(card);
     });
@@ -597,20 +623,41 @@ function renderProjects() {
     standalone.forEach(p => {
       const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁' };
       const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹' };
+      const vis = p.visibility || 'private';
+      const canChange = isAdmin || p.owner === myName;
+      const visOpts = ['private', 'public-read', 'public-edit'].map(v =>
+        `<option value="${v}"${vis === v ? ' selected' : ''}>${visLabels[v]}</option>`
+      ).join('');
       const card = document.createElement('div');
       card.className = 'project-card';
       card.innerHTML = `
         <span class="p-type">${icons[p.type] || '📄'}</span>
         <button class="p-del" data-id="${p.id}">×</button>
         <div class="p-name">${esc(cleanProjectName(p.name))}</div>
-        <div class="p-meta">${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}</div>
+        <div class="p-meta" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+          <span title="${visLabels[vis]}">${visIcons[vis] || '🔒'}</span>
+          ${names[p.type] || p.type} · ${timeAgo(p.updatedAt)}
+        </div>
         <div class="p-owner">${esc(p.owner || '我')}</div>
+        ${canChange ? `<div style="margin-top:4px"><select class="vis-select" data-id="${p.id}" style="padding:1px 4px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);outline:none">${visOpts}</select></div>` : `<div style="margin-top:4px;font-size:10px;color:var(--text-dim)">${visIcons[vis]} ${visLabels[vis]}</div>`}
       `;
-      card.querySelector('.p-del').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);
-      });
+      if (isAdmin) {
+        card.querySelector('.p-del').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);
+        });
+      } else {
+        card.querySelector('.p-del').style.display = 'none';
+      }
       card.addEventListener('click', () => openProject(p));
+      // 可见性切换
+      const visSel = card.querySelector('.vis-select');
+      if (visSel) {
+        visSel.onclick = (e) => e.stopPropagation();
+        visSel.onchange = function() {
+          socket.emit('project-set-visibility', { projectId: p.id, visibility: this.value });
+        };
+      }
       projectList.appendChild(card);
     });
   } else {
@@ -1581,4 +1628,39 @@ document.getElementById('ann-create-confirm')?.addEventListener('click', functio
 // 点击模态框外部关闭
 document.getElementById('annotation-create-modal')?.addEventListener('click', function(e) {
   if (e.target === this) closeAnnotationCreateModal();
+});
+
+// ─── 全局快捷键：撤回/恢复 ───────────────────────────────
+document.addEventListener('keydown', function(e) {
+  // Ctrl+Z 撤回
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    const activePanel = document.querySelector('.module-panel.active');
+    if (!activePanel) return;
+    // 找当前打开的项目 ID
+    const projectId = currentAnnotationDocId;
+    if (!projectId) return;
+    socket.emit('project-undo', { projectId });
+  }
+  // Ctrl+Shift+Z 恢复
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+    e.preventDefault();
+    const projectId = currentAnnotationDocId;
+    if (!projectId) return;
+    socket.emit('project-redo', { projectId });
+  }
+});
+
+// ─── 撤回/恢复按钮 ─────────────────────────────────────
+document.getElementById('script-undo-btn')?.addEventListener('click', () => {
+  if (currentAnnotationDocId) socket.emit('project-undo', { projectId: currentAnnotationDocId });
+});
+document.getElementById('script-redo-btn')?.addEventListener('click', () => {
+  if (currentAnnotationDocId) socket.emit('project-redo', { projectId: currentAnnotationDocId });
+});
+document.getElementById('story-undo-btn')?.addEventListener('click', () => {
+  if (currentAnnotationDocId) socket.emit('project-undo', { projectId: currentAnnotationDocId });
+});
+document.getElementById('story-redo-btn')?.addEventListener('click', () => {
+  if (currentAnnotationDocId) socket.emit('project-redo', { projectId: currentAnnotationDocId });
 });

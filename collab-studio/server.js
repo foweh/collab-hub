@@ -133,6 +133,18 @@ function canView(name) {
 
 // ─── 项目存储 ────────────────────────────────────────────
 let projects = loadJSON(PROJECTS_FILE, []);
+// 操作历史（用于撤回/恢复），每个项目一个数组
+const projectOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]
+const projectRedoOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]
+
+function pushProjectOp(projectId, userId, action, before, after) {
+  if (!projectOps.has(projectId)) projectOps.set(projectId, []);
+  const ops = projectOps.get(projectId);
+  ops.push({ userId, action, before, after, timestamp: Date.now() });
+  if (ops.length > 200) ops.splice(0, ops.length - 200);
+  // 清空 redo 栈（新操作产生后之前的 redo 失效）
+  projectRedoOps.delete(projectId);
+}
 
 function saveProjects() {
   const data = projects.map(p => ({
@@ -140,8 +152,37 @@ function saveProjects() {
     createdAt: p.createdAt, updatedAt: p.updatedAt,
     owner: p.owner, parentId: p.parentId || undefined,
     deleted: p.deleted || undefined, deletedAt: p.deletedAt || undefined,
+    visibility: p.visibility || 'private',
   }));
   saveJSON(PROJECTS_FILE, data);
+}
+
+// ─── 项目权限校验 ──────────────────────────────────────────
+function canViewProject(userName, project) {
+  if (!userName) return false;
+  if (project.visibility === 'private') {
+    return users[userName]?.isAdmin || project.owner === userName;
+  }
+  return true; // public-read 或 public-edit 所有人可见
+}
+
+function canEditProject(userName, project) {
+  if (!userName || !users[userName]) return false;
+  if (users[userName].isAdmin) return true;
+  if (project.owner === userName) return canEdit(userName);
+  if (project.visibility === 'public-edit') return canEdit(userName);
+  if (project.visibility === 'public-read') return false;
+  return false;
+}
+
+function canDeleteProject(userName, project) {
+  if (!userName || !users[userName]) return false;
+  return users[userName].isAdmin;
+}
+
+function canChangeVisibility(userName, project) {
+  if (!userName || !users[userName]) return false;
+  return users[userName].isAdmin || project.owner === userName;
 }
 
 // ─── 密码重置申请 ──────────────────────────────────────
@@ -460,7 +501,7 @@ io.on('connection', (socket) => {
 
   // ── 项目管理 ──
   socket.on('project-create', (data) => {
-    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME };
+    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: SERVER_NAME, visibility: 'private' };
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
@@ -486,25 +527,32 @@ io.on('connection', (socket) => {
   });
   socket.on('project-update', (data) => {
     const p = projects.find(x => x.id === data.id); if (!p) return;
-    // 只有 editor 及以上角色可以修改正式内容
-    if (data.data !== undefined && !canEdit(socket.userName)) {
-      socket.emit('project-update-error', '你没有修改正式内容的权限');
+    if (!canEditProject(socket.userName, p)) {
+      socket.emit('project-update-error', '你没有修改此项目的权限');
       return;
     }
+    // 保存快照用于撤回
+    const before = JSON.parse(JSON.stringify(p.data || {}));
     if (data.name !== undefined) p.name = data.name;
     if (data.data !== undefined) p.data = data.data;
     p.updatedAt = Date.now();
     socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
     addLog(socket.id, socket.userName || SERVER_NAME, 'updated', p.type, p.name);
+    // 记录操作历史（用于撤回）
+    pushProjectOp(p.id, socket.userName, 'update', before, JSON.parse(JSON.stringify(p.data || {})));
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     saveProjects();
   });
   socket.on('project-delete', (id) => {
     const p = projects.find(x => x.id === id);
     if (!p) return;
+    if (!canDeleteProject(socket.userName, p)) {
+      socket.emit('project-update-error', '你没有删除此项目的权限');
+      return;
+    }
     p.deleted = true; p.deletedAt = Date.now();
     socket.emit('project-deleted', id);
-    if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
+    addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     saveProjects();
   });
@@ -820,6 +868,60 @@ io.on('connection', (socket) => {
     saveAnnotations();
     io.emit('annotation-deleted', { annotationId });
     addLog(socket.id, socket.userName, 'deleted annotation', annotationId, '');
+  });
+
+  // ── 项目可见性 ──
+  socket.on('project-set-visibility', ({ projectId, visibility }) => {
+    if (!['private', 'public-read', 'public-edit'].includes(visibility)) return;
+    const p = projects.find(x => x.id === projectId);
+    if (!p || !canChangeVisibility(socket.userName, p)) { socket.emit('project-update-error', '你没有权限修改项目可见性'); return; }
+    p.visibility = visibility;
+    p.updatedAt = Date.now();
+    saveProjects();
+    io.emit('project-visibility-changed', { projectId, visibility, changedBy: socket.userName });
+    addLog(socket.id, socket.userName, 'changed visibility', p.type, p.name + ' → ' + visibility);
+  });
+
+  // ── 操作撤回/恢复 ──
+  socket.on('project-undo', ({ projectId }) => {
+    if (!socket.userName) return;
+    const p = projects.find(x => x.id === projectId);
+    if (!p) return;
+    const ops = projectOps.get(projectId) || [];
+    const idx = ops.map((o, i) => ({ o, i })).filter(x => x.o.userId === socket.userName).pop();
+    if (!idx) { socket.emit('project-update-error', '没有可撤回的操作'); return; }
+    const op = ops[idx.i];
+    p.data = JSON.parse(JSON.stringify(op.before));
+    p.updatedAt = Date.now();
+    ops.splice(idx.i, 1);
+    projectOps.set(projectId, ops);
+    if (!projectRedoOps.has(projectId)) projectRedoOps.set(projectId, []);
+    projectRedoOps.get(projectId).push({ ...op, after: op.before, before: op.after });
+    const redoStack = projectRedoOps.get(projectId);
+    if (redoStack.length > 50) redoStack.splice(0, redoStack.length - 50);
+    saveProjects();
+    socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
+    socket.emit('project-undo-result', { ok: true, userName: socket.userName });
+    addLog(socket.id, socket.userName, 'undo', p.type, p.name);
+  });
+
+  socket.on('project-redo', ({ projectId }) => {
+    if (!socket.userName) return;
+    const p = projects.find(x => x.id === projectId);
+    if (!p) return;
+    const redoStack = projectRedoOps.get(projectId) || [];
+    const idx = redoStack.map((o, i) => ({ o, i })).filter(x => x.o.userId === socket.userName).pop();
+    if (!idx) { socket.emit('project-update-error', '没有可恢复的操作'); return; }
+    const op = redoStack[idx.i];
+    p.data = JSON.parse(JSON.stringify(op.after));
+    p.updatedAt = Date.now();
+    redoStack.splice(idx.i, 1);
+    if (!projectOps.has(projectId)) projectOps.set(projectId, []);
+    projectOps.get(projectId).push({ ...op, before: op.before, after: op.after });
+    saveProjects();
+    socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
+    socket.emit('project-redo-result', { ok: true, userName: socket.userName });
+    addLog(socket.id, socket.userName, 'redo', p.type, p.name);
   });
 
   socket.on('disconnect', () => {

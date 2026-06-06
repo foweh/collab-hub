@@ -116,7 +116,10 @@
         </div>
         <div class="login-field">
           <label class="login-label">密码</label>
-          <input type="password" id="login-pwd" class="login-input" placeholder="输入密码..." maxlength="50" />
+          <div style="position:relative">
+            <input type="password" id="login-pwd" class="login-input" placeholder="输入密码..." maxlength="50" style="padding-right:36px" />
+            <span id="login-pwd-toggle" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:var(--text-dim);user-select:none">👁️</span>
+          </div>
         </div>
         <div id="login-error" class="login-error"></div>
         <button class="login-btn" id="login-btn">进入工作室</button>
@@ -193,6 +196,16 @@
     loginBtn.addEventListener('click', doLogin);
     loginPwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
     loginName.addEventListener('keydown', (e) => { if (e.key === 'Enter') loginPwd.focus(); });
+
+    // 密码显隐切换
+    const pwdToggle = document.getElementById('login-pwd-toggle');
+    if (pwdToggle) {
+      pwdToggle.addEventListener('click', () => {
+        const isPassword = loginPwd.type === 'password';
+        loginPwd.type = isPassword ? 'text' : 'password';
+        pwdToggle.textContent = isPassword ? '🙈' : '👁️';
+      });
+    }
 
     // 自动填入上次保存的用户名
     const saved = sessionStorage.getItem('collab-auth');

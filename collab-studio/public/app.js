@@ -624,6 +624,17 @@ function renderProjects() {
         const typeNames = { script: '剧本', mindmap: '思维导图', story: '故事', storyboard: '分镜', folder: '文件夹' };
         const typeIcons = { script: '📜', mindmap: '🧠', story: '📖', storyboard: '🎬', folder: '📁' };
         
+        // 获取当前文件夹内的同类型项目名称
+        const getExistingNames = () => {
+          if (currentFolderId) {
+            const folder = projects.find(p => p.id === currentFolderId);
+            const childIds = (folder && folder.data && folder.data.children) || [];
+            return projects.filter(p => !p.deleted && childIds.includes(p.id) && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
+          } else {
+            return projects.filter(p => !p.deleted && !p.parentId && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
+          }
+        };
+        
         const overlay = document.createElement('div');
         overlay.className = 'modal-overlay';
         overlay.innerHTML = `
@@ -632,6 +643,7 @@ function renderProjects() {
             <div style="margin-bottom:16px">
               <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">${typeNames[type]}名称</label>
               <input type="text" id="new-item-name" class="modal-input" style="width:100%" placeholder="输入名称..." autofocus>
+              <div id="name-error" style="font-size:12px;color:var(--danger);margin-top:4px;display:none">⚠️ 名称已存在</div>
             </div>
             <div style="display:flex;justify-content:flex-end;gap:8px">
               <button class="btn" id="item-cancel">取消</button>
@@ -643,13 +655,30 @@ function renderProjects() {
 
         const nameInput = overlay.querySelector('#new-item-name');
         const confirmBtn = overlay.querySelector('#item-confirm');
+        const nameError = overlay.querySelector('#name-error');
 
-        nameInput.addEventListener('input', () => {
-          confirmBtn.disabled = !nameInput.value.trim();
-        });
+        const validateName = () => {
+          const name = nameInput.value.trim();
+          if (!name) {
+            confirmBtn.disabled = true;
+            nameError.style.display = 'none';
+            return;
+          }
+          
+          const existingNames = getExistingNames();
+          if (existingNames.includes(name)) {
+            confirmBtn.disabled = true;
+            nameError.style.display = 'block';
+          } else {
+            confirmBtn.disabled = false;
+            nameError.style.display = 'none';
+          }
+        };
+
+        nameInput.addEventListener('input', validateName);
 
         nameInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && nameInput.value.trim()) {
+          if (e.key === 'Enter' && !confirmBtn.disabled) {
             confirmBtn.click();
           } else if (e.key === 'Escape') {
             overlay.remove();

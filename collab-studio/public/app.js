@@ -364,12 +364,27 @@ async function showConfirm(msg, title = '确认', icon = '❓') {
         <h3>${esc(title)}</h3>
         <p>${esc(msg)}</p>
         <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn" style="flex:1" onclick="this.closest('.modal-overlay').remove();resolve(false)">取消</button>
-          <button class="btn btn-primary" style="flex:1" onclick="this.closest('.modal-overlay').remove();resolve(true)">确定</button>
+          <button class="btn" style="flex:1" id="confirm-cancel">取消</button>
+          <button class="btn btn-primary" style="flex:1" id="confirm-ok">确定</button>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
+    
+    const cancelBtn = overlay.querySelector('#confirm-cancel');
+    const okBtn = overlay.querySelector('#confirm-ok');
+    
+    const cleanup = () => {
+      cancelBtn.removeEventListener('click', onCancel);
+      okBtn.removeEventListener('click', onOk);
+      overlay.remove();
+    };
+    
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onOk = () => { cleanup(); resolve(true); };
+    
+    cancelBtn.addEventListener('click', onCancel);
+    okBtn.addEventListener('click', onOk);
   });
 }
 

@@ -196,6 +196,13 @@ app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 
+// ─── 白板前端（Vue 3 新前端） ────────────────────────────
+const STUDIO_VUE_DIST = path.join(__dirname, '..', 'studio-vue', 'dist');
+app.use('/studio', express.static(STUDIO_VUE_DIST));
+app.get('/studio/*', (req, res) => {
+  res.sendFile(path.join(STUDIO_VUE_DIST, 'index.html'));
+});
+
 // ─── UDP 发现 ────────────────────────────────────────────
 let broadcastDiscover = () => {};
 if (!JOIN_TARGET) {
@@ -650,6 +657,37 @@ io.on('connection', (socket) => {
     const msg = { type: 'realtime', _msgId: uuid(), origin: SERVER_ID, event: data.event, data: data.payload };
     socket.broadcast.emit(data.event, data.payload);
     broadcastToPeers(msg, null);
+  });
+
+  // ── 白板实时同步 ──
+  socket.on('whiteboard:add', (el) => {
+    el.createdBy = socket.userName || el.createdBy;
+    el.modifiedBy = socket.userName || el.modifiedBy;
+    socket.broadcast.emit('whiteboard:op', { type: 'add', elementId: el.id, after: el, userId: socket.userName, timestamp: Date.now() });
+    socket.broadcast.emit('whiteboard:add', el);
+  });
+
+  socket.on('whiteboard:update', ({ id, patch }) => {
+    patch.modifiedBy = socket.userName || patch.modifiedBy;
+    socket.broadcast.emit('whiteboard:op', { type: 'update', elementId: id, after: patch, userId: socket.userName, timestamp: Date.now() });
+    socket.broadcast.emit('whiteboard:update', { id, patch });
+  });
+
+  socket.on('whiteboard:delete', (id) => {
+    socket.broadcast.emit('whiteboard:op', { type: 'delete', elementId: id, userId: socket.userName, timestamp: Date.now() });
+    socket.broadcast.emit('whiteboard:delete', id);
+  });
+
+  socket.on('whiteboard:cursor', (pos) => {
+    const cursor = {
+      userId: socket.userName || 'unknown',
+      userName: socket.userName || '匿名',
+      x: pos.x,
+      y: pos.y,
+      color: '#1a73e8',
+      lastUpdate: Date.now(),
+    };
+    socket.broadcast.emit('whiteboard:cursor', cursor);
   });
 
   // ── 管理操作 ──

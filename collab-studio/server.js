@@ -347,7 +347,7 @@ function setupBridge(bridgeSocket, remoteIp, isIncoming) {
 const VALID_TYPES = ['script', 'mindmap', 'story', 'storyboard', 'folder', 'project'];
 const VALID_VISIBILITY = ['private', 'public-read', 'public-edit'];
 const VALID_STATUS = ['open', 'resolved', 'rejected', 'pending'];
-const VALID_ITEM_TYPES = ['script', 'mindmap', 'story', 'storyboard'];
+const VALID_ITEM_TYPES = ['script', 'mindmap', 'story', 'storyboard', 'custom']; // 允许自定义类型
 const MAX_STR_LEN = 5000;
 const MAX_NAME_LEN = 50;
 
@@ -617,23 +617,24 @@ io.on('connection', (socket) => {
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     projectSvc.saveProjects();
   });
-  socket.on('project-add-item', ({ projectId, itemType, itemName }) => {
+  socket.on('project-add-item', ({ projectId, itemType, itemName, customTypeName }) => {
     const p = projects.find(x => x.id === projectId);
     if (!p) return;
     if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
-    if (!['script', 'mindmap', 'story', 'storyboard'].includes(itemType)) return;
+    // 允许任意类型，支持自定义类型
+    const finalItemType = itemType === 'custom' ? (customTypeName || 'custom') : itemType;
     if (!p.data.items) p.data.items = [];
-    const name = itemName || projectSvc.getDefaultItemName(itemType);
+    const name = itemName || projectSvc.getDefaultItemName(finalItemType);
     // 同名检查：同一容器内同类型不能重名
-    if (p.data.items.some(it => it.type === itemType && it.name === name)) {
-      socket.emit('project-update-error', `该${projectSvc.getItemTypeLabel(itemType)}名称已存在`);
+    if (p.data.items.some(it => it.type === finalItemType && it.name === name)) {
+      socket.emit('project-update-error', `${projectSvc.getItemTypeLabel(finalItemType)}「${name}」已存在`);
       return;
     }
     const item = {
       id: uuid().slice(0, 12),
-      type: itemType,
+      type: finalItemType,
       name: name,
-      data: JSON.parse(JSON.stringify(projectSvc.getDefaultData(itemType))),
+      data: JSON.parse(JSON.stringify(projectSvc.getDefaultData(finalItemType))),
     };
     p.data.items.push(item);
     p.updatedAt = Date.now();

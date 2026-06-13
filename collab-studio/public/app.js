@@ -596,10 +596,28 @@ $('#new-project-btn').addEventListener('click', () => {
 // ─── 项目详情按钮 ──────────────────────────────────────
 function pdAddItem(type) {
   if (!currentDetailProject) return;
+  
+  // 如果是自定义类型，先让用户输入类型名称
+  if (type === 'custom') {
+    const customType = prompt('请输入自定义类型名称：');
+    if (!customType || !customType.trim()) return;
+    
+    const name = prompt('请输入项目名称：');
+    if (!name) return;
+    
+    socket.emit('project-add-item', { 
+      projectId: currentDetailProject.id, 
+      itemType: 'custom', 
+      itemName: name.trim(),
+      customTypeName: customType.trim()
+    });
+    return;
+  }
+  
   showCreateModal({
     icon: {script:'📜',mindmap:'🧠',story:'📖',storyboard:'🎬'}[type] || '📄',
     title: '新建' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[type],
-    hint: '输入名称后创建',
+    hint: '输入名称后创建（同类型不能重名）',
     placeholder: '输入名称...',
     defaultName: '新' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[type],
     callback: (name) => socket.emit('project-add-item', { projectId: currentDetailProject.id, itemType: type, itemName: name }),
@@ -609,6 +627,7 @@ document.getElementById('pd-add-script')?.addEventListener('click', () => pdAddI
 document.getElementById('pd-add-mindmap')?.addEventListener('click', () => pdAddItem('mindmap'));
 document.getElementById('pd-add-story')?.addEventListener('click', () => pdAddItem('story'));
 document.getElementById('pd-add-storyboard')?.addEventListener('click', () => pdAddItem('storyboard'));
+document.getElementById('pd-add-custom')?.addEventListener('click', () => pdAddItem('custom'));
 
 // ─── 回收站按钮 ─────────────────────────────────────────
 $('#trash-btn').addEventListener('click', () => {

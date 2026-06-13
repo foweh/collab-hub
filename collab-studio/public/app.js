@@ -567,13 +567,45 @@ function renderProjects() {
   const breadcrumb = document.getElementById('breadcrumb');
   if (currentFolderPath.length > 0) {
     breadcrumb.style.display = 'flex';
-    breadcrumb.innerHTML = `
+    let crumbsHtml = `
       <span class="crumb-item" style="cursor:pointer;color:var(--accent)">📂 我的项目</span>
       ${currentFolderPath.map((f, i) => `
         <span style="color:var(--text-dim)">/</span>
         <span class="crumb-item" data-index="${i}" style="cursor:pointer;color:var(--accent)">${esc(f.name)}</span>
       `).join('')}
     `;
+    
+    // 在文件夹内添加创建按钮到面包屑导航
+    if (!showingTrash && currentFolderId) {
+      crumbsHtml += `
+        <span style="flex:1"></span>
+        <div class="create-buttons-inline">
+          <button class="create-btn" data-type="script" title="创建剧本">
+            <span class="create-icon">📜</span>
+            <span class="create-label">剧本</span>
+          </button>
+          <button class="create-btn" data-type="mindmap" title="创建思维导图">
+            <span class="create-icon">🧠</span>
+            <span class="create-label">导图</span>
+          </button>
+          <button class="create-btn" data-type="story" title="创建故事">
+            <span class="create-icon">📖</span>
+            <span class="create-label">故事</span>
+          </button>
+          <button class="create-btn" data-type="storyboard" title="创建分镜">
+            <span class="create-icon">🎬</span>
+            <span class="create-label">分镜</span>
+          </button>
+          <button class="create-btn" data-type="folder" title="创建子文件夹">
+            <span class="create-icon">📁</span>
+            <span class="create-label">文件夹</span>
+          </button>
+        </div>
+      `;
+    }
+    
+    breadcrumb.innerHTML = crumbsHtml;
+    
     breadcrumb.querySelectorAll('.crumb-item').forEach((item, i) => {
       item.addEventListener('click', () => {
         if (i === 0) {
@@ -584,55 +616,9 @@ function renderProjects() {
         renderProjects();
       });
     });
-  } else {
-    breadcrumb.style.display = 'none';
-  }
-
-  let visibleProjects;
-  if (showingTrash) {
-    visibleProjects = projects.filter(p => p.deleted);
-  } else {
-    if (currentFolderId) {
-      const folder = projects.find(p => p.id === currentFolderId);
-      const childIds = (folder && folder.data && folder.data.children) || [];
-      visibleProjects = projects.filter(p => !p.deleted && childIds.includes(p.id));
-    } else {
-      visibleProjects = projects.filter(p => !p.deleted && !p.parentId);
-    }
-  }
-
-  const canAccess = (p) => isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private');
-  visibleProjects = visibleProjects.filter(p => canAccess(p));
-
-  // 在文件夹内显示创建按钮
-  if (!showingTrash && currentFolderId) {
-    const createButtons = document.createElement('div');
-    createButtons.className = 'create-buttons';
-    createButtons.innerHTML = `
-      <button class="create-btn" data-type="script" title="创建剧本">
-        <span class="create-icon">📜</span>
-        <span class="create-label">剧本</span>
-      </button>
-      <button class="create-btn" data-type="mindmap" title="创建思维导图">
-        <span class="create-icon">🧠</span>
-        <span class="create-label">导图</span>
-      </button>
-      <button class="create-btn" data-type="story" title="创建故事">
-        <span class="create-icon">📖</span>
-        <span class="create-label">故事</span>
-      </button>
-      <button class="create-btn" data-type="storyboard" title="创建分镜">
-        <span class="create-icon">🎬</span>
-        <span class="create-label">分镜</span>
-      </button>
-      <button class="create-btn" data-type="folder" title="创建子文件夹">
-        <span class="create-icon">📁</span>
-        <span class="create-label">文件夹</span>
-      </button>
-    `;
-    projectList.appendChild(createButtons);
-
-    createButtons.querySelectorAll('.create-btn').forEach(btn => {
+    
+    // 创建按钮点击事件
+    breadcrumb.querySelectorAll('.create-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const type = btn.dataset.type;
         const typeNames = { script: '剧本', mindmap: '思维导图', story: '故事', storyboard: '分镜', folder: '文件夹' };
@@ -683,13 +669,31 @@ function renderProjects() {
           socket.emit('project-create', { 
             type: type === 'storyboard' ? 'project' : type, 
             name: itemName, 
-            data: projectData,
-            parentId: currentFolderId 
+            parentId: currentFolderId,
+            data: projectData 
           });
         });
       });
     });
+  } else {
+    breadcrumb.style.display = 'none';
   }
+
+  let visibleProjects;
+  if (showingTrash) {
+    visibleProjects = projects.filter(p => p.deleted);
+  } else {
+    if (currentFolderId) {
+      const folder = projects.find(p => p.id === currentFolderId);
+      const childIds = (folder && folder.data && folder.data.children) || [];
+      visibleProjects = projects.filter(p => !p.deleted && childIds.includes(p.id));
+    } else {
+      visibleProjects = projects.filter(p => !p.deleted && !p.parentId);
+    }
+  }
+
+  const canAccess = (p) => isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private');
+  visibleProjects = visibleProjects.filter(p => canAccess(p));
 
   if (visibleProjects.length === 0) {
     projectList.innerHTML += showingTrash

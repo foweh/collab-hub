@@ -126,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useWhiteboardStore } from '../../stores/whiteboard'
 import { useSocketStore } from '../../stores/socket'
 import { useCommentsStore } from '../../stores/comments'
@@ -147,8 +147,15 @@ const commentsStore = useCommentsStore()
 const selectedEl = computed(() => store.selectedElements[0] || null)
 const activeTab = ref<'props' | 'align' | 'vars' | 'comments'>('props')
 
-// 初始化批注
-if (socketStore.socket) {
+// 初始化批注（socket 连接后自动设置）
+watch(() => socketStore.connected, (val) => {
+  if (val && socketStore.socket) {
+    commentsStore.setupSocket(socketStore.socket)
+    commentsStore.init('whiteboard-1')
+  }
+})
+// 如果已经连接了则立即初始化
+if (socketStore.connected && socketStore.socket) {
   commentsStore.setupSocket(socketStore.socket)
   commentsStore.init('whiteboard-1')
 }

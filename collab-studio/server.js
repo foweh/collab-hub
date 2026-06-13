@@ -610,13 +610,32 @@ io.on('connection', (socket) => {
       return;
     }
     const name = data.name || '未命名';
-    // 重名检查：同类型项目不允许重名（文件夹与其他类型可以同名）
-    if (projects.some(p => p.name === name && !p.deleted && p.type === data.type)) {
+    
+    // 重名检查：同文件夹同类型项目不允许重名
+    const isDuplicate = projects.some(p => 
+      p.name === name && 
+      !p.deleted && 
+      p.type === data.type && 
+      p.parentId === (data.parentId || undefined)
+    );
+    
+    if (isDuplicate) {
       console.log('重名检查失败:', name);
       socket.emit('project-update-error', '项目名称已存在');
       return;
     }
-    const p = { id: uuid().slice(0, 12), type: data.type, name, data: data.data || projectSvc.getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
+    
+    const p = { 
+      id: uuid().slice(0, 12), 
+      type: data.type, 
+      name, 
+      data: data.data || projectSvc.getDefaultData(data.type), 
+      createdAt: Date.now(), 
+      updatedAt: Date.now(), 
+      owner: socket.userName || SERVER_NAME, 
+      visibility: 'private',
+      parentId: data.parentId || undefined
+    };
     projects.push(p); 
     console.log('项目创建成功:', p);
     socket.emit('project-created', p);

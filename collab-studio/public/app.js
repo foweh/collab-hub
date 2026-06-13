@@ -862,7 +862,7 @@ function renderProjects() {
       card.querySelector('.trash-del-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (await showConfirm('确定要永久删除吗？此操作不可撤销！', '永久删除确认', '⚠️')) {
-          socket.emit('project-purge', p.id);
+          socket.emit('project-permanent-delete', p.id);
         }
       });
       projectList.appendChild(card);

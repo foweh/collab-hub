@@ -561,6 +561,7 @@ $('#new-project-btn').addEventListener('click', () => {
       if (selectedType === 'project') {
         nameSection.style.display = 'block';
         nameInput.focus();
+        confirmBtn.disabled = !nameInput.value.trim();  // 同步按钮状态
       } else {
         nameSection.style.display = 'none';
         confirmBtn.disabled = false;

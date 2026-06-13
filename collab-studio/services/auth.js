@@ -73,11 +73,11 @@ async function validatePassword(name, pwd) {
 // ─── 管理员初始化 ─────────────────────────────────────
 let adminReady = null;
 
-function initAdmin(adminPasswordFromEnv) {
+function initAdmin(adminPasswordFromEnv, adminUserName = '热合曼') {
   adminReady = (async () => {
     let adminPwd = adminPasswordFromEnv;
     if (!adminPwd) {
-      const existing = users['热合曼'];
+      const existing = users[adminUserName];
       const hasHash = existing && (existing.passwordHash || existing.password);
       if (!hasHash) {
         adminPwd = crypto.randomBytes(4).toString('hex');
@@ -90,8 +90,8 @@ function initAdmin(adminPasswordFromEnv) {
       return;
     }
 
-    if (users['热合曼']) {
-      const ex = users['热合曼'];
+    if (users[adminUserName]) {
+      const ex = users[adminUserName];
       const curHash = ex.passwordHash || ex.password || '';
       let needReset = false;
       if (curHash.length >= 20) {
@@ -111,7 +111,7 @@ function initAdmin(adminPasswordFromEnv) {
 
     // 首次创建管理员
     const hash = await bcrypt.hash(adminPwd, SALT_ROUNDS);
-    users['热合曼'] = { passwordHash: hash, isAdmin: true, fingerprint: '', isBanned: false, pwdLegacy: false };
+    users[adminUserName] = { passwordHash: hash, isAdmin: true, fingerprint: '', isBanned: false, pwdLegacy: false };
     saveUsers();
     console.log('[用户] 管理员账号已创建');
   })();

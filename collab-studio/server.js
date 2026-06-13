@@ -28,6 +28,30 @@ const ANNOTATIONS_FILE = path.join(DATA_DIR, 'annotations.json');
 const LOG_FILE = path.join(DATA_DIR, 'operation-log.json');
 
 // ─── 配置 & CLI ─────────────────────────────────────────
+// 读取管理员配置文件
+function loadAdminConfig() {
+  const adminEnvPath = path.join(__dirname, '.admin.env');
+  if (fs.existsSync(adminEnvPath)) {
+    try {
+      const content = fs.readFileSync(adminEnvPath, 'utf8');
+      const config = {};
+      content.split('\n').forEach(line => {
+        const match = line.match(/^(\w+)=(.+)$/);
+        if (match) {
+          config[match[1]] = match[2];
+        }
+      });
+      return config;
+    } catch(e) {
+      console.warn('[config] Failed to load admin config:', e);
+    }
+  }
+  return {};
+}
+
+const adminConfig = loadAdminConfig();
+const ADMIN_USERNAME = adminConfig.ADMIN_USERNAME || '热合曼';
+const ADMIN_PASSWORD = adminConfig.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD || null;
 let HTTP_PORT = parseInt(process.env.PORT) || 3000;
 const UDP_PORT = 41234;
 const SCAN_DURATION = 5 * 60 * 1000;
@@ -43,8 +67,8 @@ const SERVER_ID = uuid().slice(0, 8);
 let SERVER_NAME = os.hostname();
 
 const projects = projectSvc.projects; // 引用 projectSvc 的项目数组
-// 初始化管理员账户
-auth.initAdmin(process.env.ADMIN_PASSWORD || null);
+// 初始化管理员账户（从配置文件读取）
+auth.initAdmin(ADMIN_PASSWORD, ADMIN_USERNAME);
 // 操作历史（用于撤回/恢复），每个项目一个数组
 const projectOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]
 const projectRedoOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]

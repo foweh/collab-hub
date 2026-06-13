@@ -896,54 +896,25 @@ function initUI() {
 // ─── 帮助按钮 ──────────────────────────────────────────
 const helpBtn = document.getElementById('help-btn');
 if (helpBtn) {
-  helpBtn.addEventListener('click', () => {
-    const overlay = document.createElement('div');
+  helpBtn.addEventListener('click', function() {
+    var overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal-card" style="max-width:480px;max-height:80vh;overflow-y:auto;">
-        <h3 style="margin-bottom:16px">❓ 帮助中心</h3>
-        
-        <div style="margin-bottom:16px">
-          <h4 style="margin-bottom:8px;color:var(--accent)">📂 项目管理</h4>
-          <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
-            <li>点击「新建文件夹」创建文件夹容器</li>
-            <li>双击文件夹进入查看子项目</li>
-            <li>点击面包屑导航返回上级</li>
-            <li>在文件夹内可以创建剧本、导图、故事、分镜等内容</li>
-          </ul>
-        </div>
-        
-        <div style="margin-bottom:16px">
-          <h4 style="margin-bottom:8px;color:var(--accent)">✍️ 创作工具</h4>
-          <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
-            <li>📜 剧本：专业剧本写作工具</li>
-            <li>🧠 导图：思维导图梳理思路</li>
-            <li>📖 故事：故事创作编辑器</li>
-            <li>🎬 分镜：影视分镜制作工具</li>
-          </ul>
-        </div>
-        
-        <div style="margin-bottom:16px">
-          <h4 style="margin-bottom:8px;color:var(--accent)">🤝 协作功能</h4>
-          <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
-            <li>开启局域网开关扫描附近设备</li>
-            <li>从其他设备接收共享项目</li>
-            <li>实时同步编辑内容</li>
-          </ul>
-        </div>
-        
-        <div style="margin-bottom:16px">
-          <h4 style="margin-bottom:8px;color:var(--accent)">🔒 权限管理</h4>
-          <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
-            <li>私密：仅自己可见</li>
-            <li>公开-只读：所有人可见但不可编辑</li>
-            <li>公开-可编辑：所有人可查看和编辑</li>
-          </ul>
-        </div>
-        
-        <button class="btn btn-primary" style="width:100%" onclick="this.closest('.modal-overlay').remove()">知道了</button>
-      </div>
-    `;
+    var card = document.createElement('div');
+    card.className = 'modal-card';
+    card.style.maxWidth = '400px';
+    card.innerHTML = '<h3>帮助中心</h3>';
+    card.innerHTML += '<p>新建文件夹：在项目页面创建文件夹容器</p>';
+    card.innerHTML += '<p>双击文件夹：进入查看子项目</p>';
+    card.innerHTML += '<p>面包屑导航：点击可返回上级</p>';
+    card.innerHTML += '<p>文件夹内：可创建剧本、导图、故事、分镜</p>';
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.style.width = '100%';
+    btn.style.marginTop = '12px';
+    btn.textContent = '知道了';
+    btn.onclick = function() { overlay.remove(); };
+    card.appendChild(btn);
+    overlay.appendChild(card);
     document.body.appendChild(overlay);
-  }
+  });
 }

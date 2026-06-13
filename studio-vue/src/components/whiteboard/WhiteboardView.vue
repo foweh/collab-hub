@@ -49,6 +49,9 @@
         <button :class="['tab-btn', { active: activeTab === 'props' }]" @click="activeTab = 'props'">属性</button>
         <button :class="['tab-btn', { active: activeTab === 'align' }]" @click="activeTab = 'align'">对齐</button>
         <button :class="['tab-btn', { active: activeTab === 'vars' }]" @click="activeTab = 'vars'">变量</button>
+        <button :class="['tab-btn', { active: activeTab === 'comments' }]" @click="activeTab = 'comments'">
+          批注 <span v-if="commentsStore.openCount > 0" style="background:#1a73e8;color:#fff;border-radius:8px;padding:0 5px;font-size:10px;margin-left:2px">{{ commentsStore.openCount }}</span>
+        </button>
       </div>
 
       <!-- 属性标签 -->
@@ -113,6 +116,11 @@
       <div v-if="activeTab === 'vars'" class="tab-content" style="padding:0">
         <DesignVariablesPanel />
       </div>
+
+      <!-- 批注标签 -->
+      <div v-if="activeTab === 'comments'" class="tab-content" style="padding:0;overflow:hidden">
+        <CommentsPanel />
+      </div>
     </aside>
   </div>
 </template>
@@ -121,19 +129,29 @@
 import { computed, ref } from 'vue'
 import { useWhiteboardStore } from '../../stores/whiteboard'
 import { useSocketStore } from '../../stores/socket'
+import { useCommentsStore } from '../../stores/comments'
 import WhiteboardCanvas from './WhiteboardCanvas.vue'
 import Minimap from './Minimap.vue'
 import DesignVariablesPanel from './DesignVariablesPanel.vue'
+import CommentsPanel from './CommentsPanel.vue'
 import { alignElements, distributeElements } from '../../composables/useAlignment'
 import { performBooleanOp, type BooleanOp } from '../../composables/useBooleanOps'
-import type { WhiteboardElement, AlignMode } from '../../composables/useAlignment'
+import type { WhiteboardElement } from '../../types/whiteboard'
+import type { AlignMode } from '../../composables/useAlignment'
 
 const props = defineProps<{ userId: string; userName: string }>()
 const store = useWhiteboardStore()
 const socketStore = useSocketStore()
+const commentsStore = useCommentsStore()
 
 const selectedEl = computed(() => store.selectedElements[0] || null)
-const activeTab = ref<'props' | 'align' | 'vars'>('props')
+const activeTab = ref<'props' | 'align' | 'vars' | 'comments'>('props')
+
+// 初始化批注
+if (socketStore.socket) {
+  commentsStore.setupSocket(socketStore.socket)
+  commentsStore.init('whiteboard-1')
+}
 
 function addShape(type: WhiteboardElement['type']) {
   store.setActiveTool('select')

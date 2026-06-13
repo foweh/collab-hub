@@ -165,3 +165,36 @@ export interface GroupAttrs {
   layout: AutoLayoutConfig
   children: string[]       // 子元素 ID 列表
 }
+
+// ─── 批注类型 ───────────────────────────────────────
+
+/** 批注锚点位置 */
+export interface AnnotationAnchor {
+  x: number
+  y: number
+  /** 关联的元素 ID */
+  elementId?: string
+}
+
+/** 批注回复 */
+export interface AnnotationReply {
+  userId: string
+  text: string
+  timestamp: number
+}
+
+/** 批注 */
+export interface Annotation {
+  id: string
+  documentId: string
+  userId: string
+  createdAt: number
+  updatedAt: number
+  status: 'open' | 'resolved' | 'rejected' | 'pending'
+  anchor: AnnotationAnchor
+  content: {
+    text: string
+    attachments?: string[]
+  }
+  replyThread: AnnotationReply[]
+}

@@ -148,6 +148,20 @@
         <template v-for="[uid, cursor] in store.remoteCursors" :key="uid">
           <v-text :config="cursorLabelConfig(cursor)" />
         </template>
+
+        <!-- 批注标记 -->
+        <template v-for="ann in commentsStore.annotations" :key="ann.id">
+          <v-circle v-if="ann.status !== 'resolved'"
+            :config="{
+              x: ann.anchor.x, y: ann.anchor.y,
+              radius: 7, fill: '#1a73e8', stroke: '#fff', strokeWidth: 2,
+              shadowColor: 'rgba(26,115,232,0.3)', shadowBlur: 6,
+            }" />
+          <v-text :config="{
+            x: ann.anchor.x - 4, y: ann.anchor.y - 5,
+            text: '!', fontSize: 10, fill: '#fff', fontStyle: 'bold',
+          }" />
+        </template>
       </v-layer>
     </v-stage>
 
@@ -166,11 +180,13 @@ import Konva from 'konva'
 import { useWhiteboardStore } from '../../stores/whiteboard'
 import { useCanvas } from '../../composables/useCanvas'
 import { useDrawing } from '../../composables/useDrawing'
+import { useCommentsStore } from '../../stores/comments'
 import { findNearestAnchor, generateBezierPath, type Connector } from '../../composables/useConnector'
 import type { WhiteboardElement, RemoteCursor } from '../../types/whiteboard'
 
 const props = defineProps<{ userId: string; userName: string }>()
 const store = useWhiteboardStore()
+const commentsStore = useCommentsStore()
 const { handleWheel, handlePointerDown: canvasPointerDown, handlePointerMove: canvasPointerMove, handlePointerUp: canvasPointerUp } = useCanvas()
 const { drawing, startDraw, updateDraw, endDraw, cancelDraw } = useDrawing()
 
@@ -441,6 +457,15 @@ function onPointerDown(e: any) {
 
   const tool = store.activeTool
 
+  // 评论模式：点击创建批注
+  if (commentsStore.commentMode) {
+    const text = prompt('输入批注内容:')
+    if (text && text.trim()) {
+      commentsStore.create(p.x, p.y, text.trim())
+    }
+    return
+  }
+
   if (tool === 'connector') {
     // 连接线模式：找到最近元素开始绘制
     const hit = findNearestAnchor(p.x, p.y, store.elements, undefined, 30)
@@ -575,6 +600,11 @@ function onKeyDown(e: KeyboardEvent) {
   const km: Record<string, string> = { v: 'select', r: 'rectangle', o: 'ellipse', l: 'line', a: 'arrow', c: 'connector' }
   const t = km[e.key.toLowerCase()]
   if (t) { store.setActiveTool(t as any); e.preventDefault() }
+  // M 键切换评论模式
+  if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.metaKey) {
+    commentsStore.toggleCommentMode()
+    e.preventDefault()
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     store.selectedIds.forEach(id => { store.deleteElement(id); emit('element-drag-end', id) })
   }

@@ -581,7 +581,13 @@ io.on('connection', (socket) => {
   // ── 项目管理 ──
   socket.on('project-create', (data) => {
     if (!validateEventPayload('project-create', data).valid) return;
-    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || projectSvc.getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
+    const name = data.name || '未命名';
+    // 重名检查：同级项目或文件夹不允许重名
+    if (projects.some(p => p.name === name && !p.deleted && p.type !== 'folder')) {
+      socket.emit('project-update-error', '项目名称已存在');
+      return;
+    }
+    const p = { id: uuid().slice(0, 12), type: data.type, name, data: data.data || projectSvc.getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
@@ -593,10 +599,16 @@ io.on('connection', (socket) => {
     if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
     if (!['script', 'mindmap', 'story', 'storyboard'].includes(itemType)) return;
     if (!p.data.items) p.data.items = [];
+    const name = itemName || projectSvc.getDefaultItemName(itemType);
+    // 同名检查：同一容器内同类型不能重名
+    if (p.data.items.some(it => it.type === itemType && it.name === name)) {
+      socket.emit('project-update-error', `该${projectSvc.getItemTypeLabel(itemType)}名称已存在`);
+      return;
+    }
     const item = {
       id: uuid().slice(0, 12),
       type: itemType,
-      name: itemName || projectSvc.getDefaultItemName(itemType),
+      name: name,
       data: JSON.parse(JSON.stringify(projectSvc.getDefaultData(itemType))),
     };
     p.data.items.push(item);
@@ -633,6 +645,43 @@ io.on('connection', (socket) => {
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     projectSvc.saveProjects();
   });
+
+  // ── 重命名项目 ──
+  socket.on('project-rename', ({ id, name }) => {
+    if (!validateString(name, 50) || !name.trim()) { socket.emit('project-update-error', '名称无效'); return; }
+    const p = projects.find(x => x.id === id);
+    if (!p) return;
+    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有修改权限'); return; }
+    if (projects.some(x => x.name === name && x.id !== id && !x.deleted && x.type !== 'folder')) {
+      socket.emit('project-update-error', '项目名称已存在');
+      return;
+    }
+    p.name = name.trim();
+    p.updatedAt = Date.now();
+    projectSvc.saveProjects();
+    io.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
+    addLog(socket.id, socket.userName, 'renamed', p.type, name);
+  });
+
+  // ── 重命名子项 ──
+  socket.on('project-item-rename', ({ projectId, itemId, name }) => {
+    if (!validateString(name, 50) || !name.trim()) { socket.emit('project-update-error', '名称无效'); return; }
+    const p = projects.find(x => x.id === projectId);
+    if (!p || !p.data.items) return;
+    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有修改权限'); return; }
+    const item = p.data.items.find(it => it.id === itemId);
+    if (!item) return;
+    if (p.data.items.some(it => it.type === item.type && it.name === name && it.id !== itemId)) {
+      socket.emit('project-update-error', `该${projectSvc.getItemTypeLabel(item.type)}名称已存在`);
+      return;
+    }
+    item.name = name.trim();
+    p.updatedAt = Date.now();
+    projectSvc.saveProjects();
+    io.emit('project-item-added', { projectId, item });
+    addLog(socket.id, socket.userName, 'renamed item', p.type, name);
+  });
+
   socket.on('project-update', (data) => {
     if (!validateEventPayload('project-update', data).valid) return;
     const p = projects.find(x => x.id === data.id); if (!p) return;

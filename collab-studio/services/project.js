@@ -31,6 +31,11 @@ function getDefaultItemName(type) {
   return names[type] || '新项目';
 }
 
+function getItemTypeLabel(type) {
+  const labels = { script: '剧本', mindmap: '导图', story: '故事', storyboard: '分镜' };
+  return labels[type] || type;
+}
+
 // ─── 持久化 ───────────────────────────────────────────
 function saveProjects() {
   const data = projects.map(p => ({
@@ -263,4 +268,5 @@ module.exports = {
   canDeleteProject,
   canChangeVisibility,
   getDefaultData,
+  getItemTypeLabel,
 };

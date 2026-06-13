@@ -15,12 +15,15 @@
       </div>
     </header>
 
+    <!-- 错误提示 -->
+    <div v-if="errorMsg" class="pp-error">{{ errorMsg }}</div>
+
     <div class="pp-content">
       <!-- 项目列表 -->
       <div class="pp-projects">
         <div v-for="p in store.visibleProjects" :key="p.id" :class="['pp-project', { active: store.currentProjectId === p.id }]"
           @click="store.selectProject(p.id)">
-          <div class="pp-project-row">
+          <div class="pp-project-row" @dblclick="startRenameProject(p)">
             <span class="pp-project-icon">{{ projectIcon(p.type) }}</span>
             <span class="pp-project-name">{{ p.name }}</span>
             <span class="pp-project-type">{{ typeLabel(p.type) }}</span>
@@ -57,7 +60,7 @@
                 :class="['pd-item', { active: store.currentItemId === item.id }]"
                 @click="openItem(store.currentProject!, item)">
                 <span class="pd-item-icon">{{ projectIcon(item.type) }}</span>
-                <span class="pd-item-name">{{ item.name }}</span>
+                <span class="pd-item-name" @dblclick.stop="startRenameItem(item)">{{ item.name }}</span>
                 <span class="pd-item-type">{{ typeLabel(item.type) }}</span>
                 <button class="pd-item-del" @click.stop="deleteItem(store.currentProject!.id, item.id)" title="删除">✕</button>
               </div>
@@ -147,6 +150,27 @@
         </div>
       </div>
     </div>
+
+    <!-- 重命名弹窗 -->
+    <div v-if="showRenameModal" class="modal-overlay" @click.self="showRenameModal = false">
+      <div class="modal-card modal-sm">
+        <div class="modal-header">
+          <span class="modal-title">重命名</span>
+          <button class="modal-close" @click="showRenameModal = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-field">
+            <label>新名称</label>
+            <input v-model="renameValue" placeholder="输入新名称..." class="form-input" ref="renameInput" maxlength="50"
+              @keydown.enter="doRename" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="pp-btn" @click="showRenameModal = false">取消</button>
+          <button class="pp-btn primary" @click="doRename" :disabled="!renameValue.trim()">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -161,6 +185,24 @@ import MindmapView from '../views/MindmapView.vue'
 
 const store = useProjectStore()
 const socketStore = useSocketStore()
+
+// 错误提示
+const errorMsg = ref('')
+let errorTimer: any = null
+function showError(msg: string) {
+  errorMsg.value = msg
+  if (errorTimer) clearTimeout(errorTimer)
+  errorTimer = setTimeout(() => { errorMsg.value = '' }, 4000)
+}
+
+// Socket 错误监听
+watch(() => socketStore.socket, (s) => {
+  if (s) {
+    s.off('project-update-error')
+    s.on('project-update-error', (msg: string) => showError(msg))
+    store.setupSocket(s)
+  }
+})
 
 const userName = ref(localStorage.getItem('studio-user-name') || '')
 const userId = ref(localStorage.getItem('studio-user-id') || 'u' + Date.now().toString(36))
@@ -252,6 +294,38 @@ function connectServer() {
   const uname = localStorage.getItem('studio-user-name') || '用户' + uid.slice(0, 4)
   socketStore.connect(wsUrl, uid, uname)
 }
+
+// ── 重命名 ──
+const showRenameModal = ref(false)
+const renameValue = ref('')
+const renameTarget = ref<{ type: 'project'; id: string } | { type: 'item'; projectId: string; itemId: string } | null>(null)
+const renameInput = ref<HTMLInputElement | null>(null)
+
+function startRenameProject(p: Project) {
+  renameTarget.value = { type: 'project', id: p.id }
+  renameValue.value = p.name
+  showRenameModal.value = true
+  nextTick(() => renameInput.value?.focus())
+}
+
+function startRenameItem(item: ProjectItem) {
+  if (!store.currentProjectId) return
+  renameTarget.value = { type: 'item', projectId: store.currentProjectId, itemId: item.id }
+  renameValue.value = item.name
+  showRenameModal.value = true
+  nextTick(() => renameInput.value?.focus())
+}
+
+function doRename() {
+  const name = renameValue.value.trim()
+  if (!name || !renameTarget.value) return
+  if (renameTarget.value.type === 'project') {
+    store.renameProject(renameTarget.value.id, name)
+  } else {
+    store.renameItem(renameTarget.value.projectId, renameTarget.value.itemId, name)
+  }
+  showRenameModal.value = false
+}
 watch(() => socketStore.connected, (val) => {
   if (val && socketStore.socket) {
     store.setupSocket(socketStore.socket)
@@ -329,6 +403,8 @@ watch(showCreateModal, (val) => {
 .pp-dot.online { background: #34a853; }
 .pp-dot.offline { background: #ea4335; }
 .pp-conn-text { font-size: 11px; color: #666; }
+.pp-error { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); background: #fce4ec; color: #c62828; padding: 8px 20px; border-radius: 8px; font-size: 13px; z-index: 1001; border: 1px solid #f8bbd0; box-shadow: 0 2px 12px rgba(0,0,0,0.1); animation: fadeIn 0.2s; }
+@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(-10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 .pp-btn { padding: 8px 16px; border: 1px solid #dadce0; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .pp-btn.primary { background: #1a73e8; color: white; border: none; }
 .pp-btn:disabled { opacity: 0.4; cursor: default; }

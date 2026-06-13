@@ -142,6 +142,18 @@ export const useProjectStore = defineStore('project', () => {
     socket.socket?.emit('project-update', { id: projectId, data })
   }
 
+  // 重命名项目
+  function renameProject(projectId: string, name: string) {
+    const socket = useSocketStore()
+    socket.socket?.emit('project-rename', { id: projectId, name })
+  }
+
+  // 重命名子项
+  function renameItem(projectId: string, itemId: string, name: string) {
+    const socket = useSocketStore()
+    socket.socket?.emit('project-item-rename', { projectId, itemId, name })
+  }
+
   // 删除项目
   function remove(projectId: string) {
     const socket = useSocketStore()
@@ -177,6 +189,7 @@ export const useProjectStore = defineStore('project', () => {
     setupSocket,
     create, createWithItems, addItem, removeItem,
     update, remove,
+    renameProject, renameItem,
     selectProject, selectItem,
     getDefaultData,
   }

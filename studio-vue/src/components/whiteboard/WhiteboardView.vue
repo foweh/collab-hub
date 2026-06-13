@@ -139,7 +139,7 @@ import { performBooleanOp, type BooleanOp } from '../../composables/useBooleanOp
 import type { WhiteboardElement } from '../../types/whiteboard'
 import type { AlignMode } from '../../composables/useAlignment'
 
-const props = defineProps<{ userId: string; userName: string }>()
+const props = defineProps<{ userId: string; userName: string; projectId?: string; itemId?: string }>()
 const store = useWhiteboardStore()
 const socketStore = useSocketStore()
 const commentsStore = useCommentsStore()

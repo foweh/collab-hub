@@ -1,5 +1,5 @@
 <template>
-  <div class="whiteboard-page">
+  <div class="whiteboard-page" v-if="!projectId">
     <WhiteboardView :user-id="userId" :user-name="userName" />
   </div>
 </template>
@@ -12,9 +12,7 @@ import { useSocketStore } from '../stores/socket'
 const socketStore = useSocketStore()
 const userId = ref(socketStore.myUserId || localStorage.getItem('studio-user-id') || 'unknown')
 const userName = ref(socketStore.myUserName || localStorage.getItem('studio-user-name') || '匿名')
-
-// 不自动连接——用户需要先点击首页"连接"按钮
-// if (!socketStore.connected) { ... } 已移除
+const projectId = ref<string | null>(null)
 </script>
 
 <style scoped>

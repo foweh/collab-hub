@@ -753,8 +753,12 @@ function renderProjects() {
       if (canDeleteProject(f)) {
         card.querySelector('.p-del').addEventListener('click', async (e) => {
           e.stopPropagation();
+          console.log('删除文件夹按钮被点击:', f.name, f.id);
           if (await showConfirm(`删除文件夹「${f.name}」及其所有子项目？`, '删除确认', '🗑️')) {
-            (f.data && f.data.children || []).forEach(cid => socket.emit('project-delete', cid));
+            console.log('确认删除文件夹:', f.name);
+            // 使用 parentId 查找子项目
+            const childProjects = projects.filter(p => p.parentId === f.id);
+            childProjects.forEach(c => socket.emit('project-delete', c.id));
             socket.emit('project-delete', f.id);
           }
         });
@@ -852,7 +856,9 @@ function renderProjects() {
 }
 
 function canDeleteProject(p) {
-  return isAdmin || p.owner === myName;
+  const result = isAdmin || p.owner === myName;
+  console.log('canDeleteProject:', p.name, 'isAdmin:', isAdmin, 'owner:', p.owner, 'myName:', myName, 'result:', result);
+  return result;
 }
 
 function cleanProjectName(name) {

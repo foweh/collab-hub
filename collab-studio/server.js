@@ -366,7 +366,9 @@ function validateEventPayload(eventName, data) {
       return { valid: true };
     
     case 'project-delete':
-      if (!validateId(data.id))
+      // 支持字符串ID和对象格式
+      const deleteId = typeof data === 'string' ? data : data.id;
+      if (!validateId(deleteId))
         return { valid: false, error: '项目ID无效' };
       return { valid: true };
     

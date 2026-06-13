@@ -627,9 +627,7 @@ function renderProjects() {
         // 获取当前文件夹内的同类型项目名称
         const getExistingNames = () => {
           if (currentFolderId) {
-            const folder = projects.find(p => p.id === currentFolderId);
-            const childIds = (folder && folder.data && folder.data.children) || [];
-            return projects.filter(p => !p.deleted && childIds.includes(p.id) && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
+            return projects.filter(p => !p.deleted && p.parentId === currentFolderId && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
           } else {
             return projects.filter(p => !p.deleted && !p.parentId && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
           }
@@ -713,9 +711,7 @@ function renderProjects() {
     visibleProjects = projects.filter(p => p.deleted);
   } else {
     if (currentFolderId) {
-      const folder = projects.find(p => p.id === currentFolderId);
-      const childIds = (folder && folder.data && folder.data.children) || [];
-      visibleProjects = projects.filter(p => !p.deleted && childIds.includes(p.id));
+      visibleProjects = projects.filter(p => !p.deleted && p.parentId === currentFolderId);
     } else {
       visibleProjects = projects.filter(p => !p.deleted && !p.parentId);
     }

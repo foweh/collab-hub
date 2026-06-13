@@ -21,6 +21,12 @@
           <p>无限画布、流程图、BPMN、UML — 多人实时协作</p>
         </router-link>
 
+        <router-link to="/mindmap" class="module-card">
+          <div class="card-icon">🧠</div>
+          <h3>思维导图</h3>
+          <p>树状布局、折叠展开、拖拽编辑 — Konva 渲染</p>
+        </router-link>
+
         <div class="module-card disabled">
           <div class="card-icon">📱</div>
           <h3>原型设计</h3>

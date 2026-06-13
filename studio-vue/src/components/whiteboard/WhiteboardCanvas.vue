@@ -108,6 +108,18 @@
             <v-line :config="arrowLineConfig(el)" />
             <v-line :config="arrowHeadConfig(el)" />
           </v-group>
+
+          <!-- 思维导图节点 -->
+          <v-group v-else-if="el.type==='mindmap-node'" :config="groupConfig(el)" :draggable="isDraggable"
+            @click="select(el.id)" @dragstart="emit('element-drag-start', el.id)" @dragend="emit('element-drag-end', el.id)">
+            <v-rect v-if="mindmapShape(el)==='rounded-rect'"
+              :config="mindmapRectConfig(el)" />
+            <v-ellipse v-else-if="mindmapShape(el)==='ellipse'"
+              :config="mindmapEllipseConfig(el)" />
+            <v-line v-else
+              :config="mindmapDiamondConfig(el)" />
+            <v-text :config="mindmapTextConfig(el)" />
+          </v-group>
         </template>
 
         <!-- 正在绘制的形状预览 -->
@@ -295,6 +307,29 @@ function arrowLineConfig(el: WhiteboardElement) {
 
 function arrowHeadConfig(el: WhiteboardElement) {
   return { points: [el.width - 10, el.height / 2 - 6, el.width, el.height / 2, el.width - 10, el.height / 2 + 6], closed: true, fill: el.stroke, stroke: el.stroke, strokeWidth: 1 }
+}
+
+function mindmapShape(el: WhiteboardElement) {
+  const attrs = el.attrs as any
+  return attrs?.shape || 'rounded-rect'
+}
+
+function mindmapRectConfig(el: WhiteboardElement) {
+  return { width: el.width, height: el.height, fill: el.fill, stroke: '#333', strokeWidth: 1.5, cornerRadius: 8, shadowColor: 'rgba(0,0,0,0.1)', shadowBlur: 4, shadowOffsetY: 2 }
+}
+
+function mindmapEllipseConfig(el: WhiteboardElement) {
+  return { x: el.width / 2, y: el.height / 2, radiusX: el.width / 2, radiusY: el.height / 2, fill: el.fill, stroke: '#333', strokeWidth: 1.5 }
+}
+
+function mindmapDiamondConfig(el: WhiteboardElement) {
+  const cx = el.width / 2, cy = el.height / 2
+  return { points: [cx, 0, el.width, cy, cx, el.height, 0, cy], closed: true, fill: el.fill, stroke: '#333', strokeWidth: 1.5, lineJoin: 'round' }
+}
+
+function mindmapTextConfig(el: WhiteboardElement) {
+  const attrs = el.attrs as any
+  return { x: el.width / 2, y: el.height / 2, text: attrs?.text || '节点', fontSize: 12, fill: '#fff', fontFamily: 'sans-serif', align: 'center', verticalAlign: 'middle' }
 }
 
 // ── 连接线 ──

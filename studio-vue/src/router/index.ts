@@ -13,6 +13,11 @@ const router = createRouter({
       name: 'whiteboard',
       component: () => import('../views/WhiteboardView.vue'),
     },
+    {
+      path: '/mindmap',
+      name: 'mindmap',
+      component: () => import('../views/MindmapView.vue'),
+    },
   ],
 })
 

@@ -439,7 +439,9 @@ io.on('connection', (socket) => {
     const userName = (name || '').trim();
     if (!userName) return;
     const ip = (socket.handshake.address || '').replace(/^::ffff:/, '');
-    if (!checkRateLimit(`login:${ip}`, 20, 60000)) {
+    // 管理员豁免频率限制
+    const isAdminUser = users[userName]?.isAdmin || false;
+    if (!isAdminUser && !checkRateLimit(`login:${ip}`, 20, 60000)) {
       socket.emit('login-error', '登录尝试过于频繁，请稍后再试');
       socket.disconnect();
       return;
@@ -731,7 +733,7 @@ io.on('connection', (socket) => {
       }
       auth.saveUsers();
       for (const [sid, u] of onlineUsers) {
-        if (u.fingerprint === fingerprint) {
+        if (u.fingerprint === fingerprint && !u.isAdmin) {
           io.to(sid).emit('kicked', '你的设备已被拉黑');
           io.sockets.sockets.get(sid)?.disconnect();
         }

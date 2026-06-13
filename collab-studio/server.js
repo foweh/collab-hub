@@ -1,6 +1,7 @@
 // ─── 多机协作创作工作室 服务端 ──────────────────────────
 const express = require('express');
 const http = require('http');
+const helmet = require('helmet');
 const { Server: SocketIOServer } = require('socket.io');
 const { io: SocketIOClient } = require('socket.io-client');
 const { v4: uuid } = require('uuid');
@@ -8,18 +9,18 @@ const path = require('path');
 const os = require('os');
 const dgram = require('dgram');
 const fs = require('fs');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 
 const { ensureDataDir, loadJSON, saveJSON, DATA_DIR } = require('./utils/persist');
 const { checkRateLimit } = require('./utils/ratelimit');
-
-const SALT_ROUNDS = 10;
+const auth = require('./services/auth');
+const projectSvc = require('./services/project');
+const logger = require('./services/logger');
+const annotationSvc = require('./services/annotation');
+const { users } = auth; // 直接引用 users 对象以兼容现有代码
 
 // ─── 文件路径 ────────────────────────────────────────────
 ensureDataDir();
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
-const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const FENJING_FILE = path.join(DATA_DIR, 'fenjing-state.json');
 const PWD_RESETS_FILE = path.join(DATA_DIR, 'password-resets.json');
 const MSG_PERM_FILE = path.join(DATA_DIR, 'message-permissions.json');
@@ -41,98 +42,9 @@ for (let i = 0; i < args.length; i++) {
 const SERVER_ID = uuid().slice(0, 8);
 let SERVER_NAME = os.hostname();
 
-// ─── 用户管理 ────────────────────────────────────────────
-let users = loadJSON(USERS_FILE, {});
-
-const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || '26275265';
-
-async function ensureAdminAccount() {
-  if (users['热合曼']) {
-    const ex = users['热合曼'];
-    // 取现有的哈希字段（新 bcrypt 或旧 SHA256）
-    const curHash = ex.passwordHash || ex.password || '';
-    let needReset = false;
-
-    if (curHash.length >= 20) {
-      // 有 bcrypt 哈希 → 校验是否匹配默认密码
-      try {
-        needReset = !bcrypt.compareSync(ADMIN_DEFAULT_PASSWORD, curHash);
-      } catch (_) { needReset = true; }
-    } else if (curHash.length > 0) {
-      // 旧版 SHA256 → 需要升级
-      needReset = true;
-    }
-
-    if (needReset) {
-      ex.passwordHash = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, SALT_ROUNDS);
-      ex.pwdLegacy = false;
-      saveUsers();
-      console.log('[用户] 管理员密码已重置');
-    }
-    return;
-  }
-  // 首次创建管理员
-  const hash = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, SALT_ROUNDS);
-  users['热合曼'] = { passwordHash: hash, isAdmin: true, fingerprint: '', isBanned: false, pwdLegacy: false };
-  saveUsers();
-  console.log('[用户] 管理员账号已创建');
-}
-let adminReady = ensureAdminAccount().catch(e => console.error('[用户] 管理员初始化失败', e));
-
-function saveUsers() { saveJSON(USERS_FILE, users); }
-
-async function hashPwd(pwd) { return await bcrypt.hash(pwd || '', SALT_ROUNDS); }
-
-async function validatePassword(name, pwd) {
-  if (!users[name]) return false;
-  const record = users[name];
-  // 用 passwordHash 优先，其次退回到旧 password 字段
-  const hashField = record.passwordHash || record.password;
-  if (!hashField) return !pwd;
-  if (hashField.length < 20) {
-    const oldHash = crypto.createHash('sha256').update(pwd || '').digest('hex').slice(0, 16);
-    if (hashField === oldHash) {
-      record.passwordHash = await bcrypt.hash(pwd || '', SALT_ROUNDS);
-      record.pwdLegacy = false;
-      saveUsers();
-      return true;
-    }
-    return false;
-  }
-  return await bcrypt.compare(pwd || '', hashField);
-}
-
-function isNameBanned(name) { return users[name] && users[name].isBanned; }
-
-function isFingerprintBanned(fp) {
-  for (const n in users) if (users[n].fingerprint === fp && users[n].isBanned) return true;
-  return false;
-}
-
-// ─── 角色权限校验 ──────────────────────────────────────────
-function getUserRole(name) {
-  if (!users[name]) return 'viewer';
-  if (users[name].isAdmin) return 'editor';
-  return users[name].role || 'commenter';
-}
-
-function canEdit(name) {
-  return users[name] && (users[name].isAdmin || getUserRole(name) === 'editor');
-}
-
-function canComment(name) {
-  if (!users[name]) return false;
-  if (users[name].isAdmin) return true;
-  const role = getUserRole(name);
-  return role === 'editor' || role === 'commenter';
-}
-
-function canView(name) {
-  return users[name] && true;
-}
-
-// ─── 项目存储 ────────────────────────────────────────────
-let projects = loadJSON(PROJECTS_FILE, []);
+const projects = projectSvc.projects; // 引用 projectSvc 的项目数组
+// 初始化管理员账户
+auth.initAdmin(process.env.ADMIN_PASSWORD || null);
 // 操作历史（用于撤回/恢复），每个项目一个数组
 const projectOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]
 const projectRedoOps = new Map(); // projectId → [{ userId, action, before, after, timestamp }]
@@ -146,46 +58,6 @@ function pushProjectOp(projectId, userId, action, before, after) {
   projectRedoOps.delete(projectId);
 }
 
-function saveProjects() {
-  const data = projects.map(p => ({
-    id: p.id, type: p.type, name: p.name, data: p.data,
-    createdAt: p.createdAt, updatedAt: p.updatedAt,
-    owner: p.owner, parentId: p.parentId || undefined,
-    deleted: p.deleted || undefined, deletedAt: p.deletedAt || undefined,
-    visibility: p.visibility || 'private',
-  }));
-  saveJSON(PROJECTS_FILE, data);
-}
-
-// ─── 项目权限校验 ──────────────────────────────────────────
-function canViewProject(userName, project) {
-  if (!userName) return false;
-  if (project.visibility === 'private') {
-    return users[userName]?.isAdmin || project.owner === userName;
-  }
-  return true; // public-read 或 public-edit 所有人可见
-}
-
-function canEditProject(userName, project) {
-  if (!userName || !users[userName]) return false;
-  if (users[userName].isAdmin) return true;
-  if (project.owner === userName) return canEdit(userName);
-  if (project.visibility === 'public-edit') return canEdit(userName);
-  if (project.visibility === 'public-read') return false;
-  return false;
-}
-
-function canDeleteProject(userName, project) {
-  if (!userName || !users[userName]) return false;
-  return users[userName].isAdmin;
-}
-
-function canChangeVisibility(userName, project) {
-  if (!userName || !users[userName]) return false;
-  return users[userName].isAdmin || project.owner === userName;
-}
-
-// ─── 密码重置申请 ──────────────────────────────────────
 let passwordResets = loadJSON(PWD_RESETS_FILE, []);
 let pwdResetId = passwordResets.length > 0 ? Math.max(...passwordResets.map(r => r.id || 0)) : 0;
 function savePasswordResets() { saveJSON(PWD_RESETS_FILE, passwordResets); }
@@ -306,11 +178,18 @@ setInterval(() => {
 
 // ─── Express + Socket.IO ─────────────────────────────────
 const app = express();
+app.use(helmet({
+  contentSecurityPolicy: false, // Socket.IO needs inline scripts
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+}));
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: '*' },
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
+
+// 注册日志服务的 IO 引用，使其可以广播日志事件
+logger.setIO(io);
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
@@ -321,7 +200,7 @@ app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 let broadcastDiscover = () => {};
 if (!JOIN_TARGET) {
   const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-  udp.on('error', () => {});
+  udp.on('error', (err) => { console.error('[UDP] 发现服务异常:', err.message); });
   udp.on('message', (msg, rinfo) => {
     try {
       const pkt = JSON.parse(msg.toString());
@@ -335,7 +214,7 @@ if (!JOIN_TARGET) {
         else
           console.log('  → 等待对方连接');
       }
-    } catch (_) {}
+    } catch (_) { console.error('[UDP] 发现消息解析异常'); }
   });
   udp.bind(UDP_PORT, () => { udp.setBroadcast(true); console.log('[UDP] 发现服务已启动'); });
   broadcastDiscover = () => {
@@ -398,7 +277,134 @@ function setupBridge(bridgeSocket, remoteIp, isIncoming) {
   });
 }
 
-// ─── Socket.IO 统一入口 ─────────────────────────────────
+// ─── 输入验证工具 ──────────────────────────────────────
+const VALID_TYPES = ['script', 'mindmap', 'story', 'storyboard', 'folder', 'project'];
+const VALID_VISIBILITY = ['private', 'public-read', 'public-edit'];
+const VALID_STATUS = ['open', 'resolved', 'rejected', 'pending'];
+const VALID_ITEM_TYPES = ['script', 'mindmap', 'story', 'storyboard'];
+const MAX_STR_LEN = 5000;
+const MAX_NAME_LEN = 50;
+
+function validateString(v, maxLen = MAX_STR_LEN) {
+  return typeof v === 'string' && v.length <= maxLen;
+}
+
+function validateId(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= 100 && /^[a-zA-Z0-9_-]+$/.test(v);
+}
+
+function sanitizeString(v, maxLen = MAX_STR_LEN) {
+  if (typeof v !== 'string') return '';
+  return v.slice(0, maxLen);
+}
+
+function validateEventPayload(eventName, data) {
+  if (!data || typeof data !== 'object') return { valid: false, error: '无效的请求数据' };
+  
+  switch (eventName) {
+    case 'join':
+      if (!validateString(data.name, MAX_NAME_LEN) || !data.name.trim()) 
+        return { valid: false, error: '用户名无效' };
+      if (data.token && !validateString(data.token, 100))
+        return { valid: false, error: '令牌无效' };
+      if (data.password && !validateString(data.password, 100))
+        return { valid: false, error: '密码无效' };
+      return { valid: true };
+    
+    case 'project-create':
+      if (!validateString(data.name, MAX_NAME_LEN))
+        return { valid: false, error: '项目名称无效' };
+      if (!VALID_TYPES.includes(data.type))
+        return { valid: false, error: '项目类型无效' };
+      return { valid: true };
+    
+    case 'project-update':
+      if (!validateId(data.id))
+        return { valid: false, error: '项目ID无效' };
+      return { valid: true };
+    
+    case 'project-delete':
+      if (!validateId(data.id))
+        return { valid: false, error: '项目ID无效' };
+      return { valid: true };
+    
+    case 'project-add-item':
+    case 'project-remove-item':
+      if (!validateId(data.projectId))
+        return { valid: false, error: '项目ID无效' };
+      if (eventName === 'project-add-item' && !VALID_ITEM_TYPES.includes(data.itemType))
+        return { valid: false, error: '子项类型无效' };
+      return { valid: true };
+    
+    case 'project-set-visibility':
+      if (!validateId(data.projectId))
+        return { valid: false, error: '项目ID无效' };
+      if (!VALID_VISIBILITY.includes(data.visibility))
+        return { valid: false, error: '可见性值无效' };
+      return { valid: true };
+    
+    case 'project-undo':
+    case 'project-redo':
+      if (!validateId(data.projectId))
+        return { valid: false, error: '项目ID无效' };
+      return { valid: true };
+    
+    case 'annotation-create':
+      if (!validateId(data.documentId))
+        return { valid: false, error: '文档ID无效' };
+      if (!data.content || !validateString(data.content.text, 1000))
+        return { valid: false, error: '批注内容无效' };
+      return { valid: true };
+    
+    case 'annotation-reply':
+      if (!validateId(data.annotationId))
+        return { valid: false, error: '批注ID无效' };
+      if (!validateString(data.text, 500))
+        return { valid: false, error: '回复内容无效' };
+      return { valid: true };
+    
+    case 'annotation-update-status':
+      if (!validateId(data.annotationId))
+        return { valid: false, error: '批注ID无效' };
+      if (!VALID_STATUS.includes(data.status))
+        return { valid: false, error: '状态值无效' };
+      return { valid: true };
+    
+    case 'annotation-delete':
+      if (!validateId(data.annotationId))
+        return { valid: false, error: '批注ID无效' };
+      return { valid: true };
+    
+    case 'user-message-to-user':
+      if (!validateString(data.target, MAX_NAME_LEN) || !data.target.trim())
+        return { valid: false, error: '目标用户无效' };
+      if (!validateString(data.text, 500))
+        return { valid: false, error: '消息内容无效' };
+      return { valid: true };
+    
+    case 'user-message-to-admin':
+      if (!validateString(data, 500))
+        return { valid: false, error: '消息内容无效' };
+      return { valid: true };
+    
+    case 'admin-set-role':
+      if (!validateString(data.userName, MAX_NAME_LEN))
+        return { valid: false, error: '用户名无效' };
+      if (!['viewer', 'commenter', 'editor'].includes(data.role))
+        return { valid: false, error: '角色值无效' };
+      return { valid: true };
+    
+    case 'admin-ban-user':
+    case 'admin-unban-user':
+      if (!validateString(data.userName, MAX_NAME_LEN))
+        return { valid: false, error: '用户名无效' };
+      return { valid: true };
+    
+    default:
+      return { valid: true };
+  }
+}
+
 io.on('connection', (socket) => {
   if (socket.handshake.query && socket.handshake.query.bridge === 'true') {
     const rip = (socket.handshake.address || '').replace(/^::ffff:/, '');
@@ -422,7 +428,7 @@ io.on('connection', (socket) => {
   });
 
   // ── 认证 ──
-  socket.on('join', async ({ name, password, fingerprint }) => {
+  socket.on('join', async ({ name, password, fingerprint, token }) => {
     const userName = (name || '').trim();
     if (!userName) return;
     const ip = (socket.handshake.address || '').replace(/^::ffff:/, '');
@@ -431,12 +437,27 @@ io.on('connection', (socket) => {
       socket.disconnect();
       return;
     }
-    if (fingerprint && isFingerprintBanned(fingerprint)) {
+
+    // 如果携带 token，优先验证 token
+    if (token) {
+      const tokenUser = auth.validateSessionToken(token);
+      if (tokenUser === userName) {
+        socket.userName = userName;
+        socket.isAdmin = users[userName]?.isAdmin || false;
+        onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin: socket.isAdmin, fingerprint: fingerprint || '' });
+        broadcastOnlineUsers();
+        addLog(socket.id, userName, 'reconnected', 'system', '');
+        socket.emit('login-success', { userName, isAdmin: socket.isAdmin, hasPassword: !!users[userName]?.passwordHash, token });
+        return;
+      }
+      // token 无效 → 回退到密码验证
+    }
+    if (fingerprint && auth.isFingerprintBanned(fingerprint)) {
       socket.emit('login-error', '你的设备已被拉黑，无法进入');
       socket.disconnect();
       return;
     }
-    if (isNameBanned(userName)) {
+    if (auth.isNameBanned(userName)) {
       socket.emit('login-error', '该用户已被拉黑');
       socket.disconnect();
       return;
@@ -446,7 +467,7 @@ io.on('connection', (socket) => {
     let isAdmin = false;
 
     if (users[userName] && users[userName].isAdmin) {
-      if (await validatePassword(userName, password || '')) {
+      if (await auth.validatePassword(userName, password || '')) {
         isAdmin = true;
       } else {
         socket.emit('login-error', '管理员密码错误');
@@ -456,29 +477,29 @@ io.on('connection', (socket) => {
       if (users[userName]) {
         const record = users[userName];
         if (record.passwordHash) {
-          if (!(await validatePassword(userName, password || ''))) {
+          if (!(await auth.validatePassword(userName, password || ''))) {
             socket.emit('login-error', '密码错误，请重试');
             return;
           }
         } else if (password) {
-          record.passwordHash = await hashPwd(password);
+          record.passwordHash = await auth.hashPwd(password);
         }
       } else {
         users[userName] = {
-          passwordHash: password ? await hashPwd(password) : '',
+          passwordHash: password ? await auth.hashPwd(password) : '',
           isAdmin: false, fingerprint: '', isBanned: false,
           role: 'commenter'
         };
       }
     }
     if (fingerprint) users[userName].fingerprint = fingerprint;
-    saveUsers();
+    auth.saveUsers();
 
     socket.isAdmin = isAdmin;
     onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin, fingerprint: fingerprint || '' });
     broadcastOnlineUsers();
     addLog(socket.id, userName, 'joined', 'system', '');
-    socket.emit('login-success', { userName, isAdmin, hasPassword: !!users[userName]?.passwordHash });
+    socket.emit('login-success', { userName, isAdmin, hasPassword: !!users[userName]?.passwordHash, token: auth.generateSessionToken(userName) });
   });
 
   socket.on('set-server-name', (name) => {
@@ -501,37 +522,38 @@ io.on('connection', (socket) => {
 
   // ── 项目管理 ──
   socket.on('project-create', (data) => {
-    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
+    if (!validateEventPayload('project-create', data).valid) return;
+    const p = { id: uuid().slice(0, 12), type: data.type, name: data.name || '未命名', data: data.data || projectSvc.getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
     projects.push(p); socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-add-item', ({ projectId, itemType, itemName }) => {
     const p = projects.find(x => x.id === projectId);
     if (!p) return;
-    if (!canEditProject(socket.userName, p)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
     if (!['script', 'mindmap', 'story', 'storyboard'].includes(itemType)) return;
     if (!p.data.items) p.data.items = [];
     const item = {
       id: uuid().slice(0, 12),
       type: itemType,
-      name: itemName || getDefaultItemName(itemType),
-      data: JSON.parse(JSON.stringify(getDefaultData(itemType))),
+      name: itemName || projectSvc.getDefaultItemName(itemType),
+      data: JSON.parse(JSON.stringify(projectSvc.getDefaultData(itemType))),
     };
     p.data.items.push(item);
     p.updatedAt = Date.now();
-    saveProjects();
+    projectSvc.saveProjects();
     io.emit('project-item-added', { projectId, item });
     addLog(socket.id, socket.userName, 'added item', p.type, p.name + ' → ' + item.name);
   });
   socket.on('project-remove-item', ({ projectId, itemId }) => {
     const p = projects.find(x => x.id === projectId);
     if (!p || !p.data.items) return;
-    if (!canEditProject(socket.userName, p)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
     p.data.items = p.data.items.filter(it => it.id !== itemId);
     p.updatedAt = Date.now();
-    saveProjects();
+    projectSvc.saveProjects();
     io.emit('project-item-removed', { projectId, itemId });
     addLog(socket.id, socket.userName, 'removed item', p.type, p.name);
   });
@@ -544,18 +566,19 @@ io.on('connection', (socket) => {
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', 'folder', folder.name);
     const created = [folder];
     (children || []).forEach(c => {
-      const child = { id: uuid().slice(0, 12), type: c.type, name: c.name || '未命名', data: getDefaultData(c.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, parentId: folder.id };
+      const child = { id: uuid().slice(0, 12), type: c.type, name: c.name || '未命名', data: projectSvc.getDefaultData(c.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, parentId: folder.id };
       projects.push(child);
       socket.emit('project-created', child);
       created.push(child);
       folder.data.children.push(child.id);
     });
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-update', (data) => {
+    if (!validateEventPayload('project-update', data).valid) return;
     const p = projects.find(x => x.id === data.id); if (!p) return;
-    if (!canEditProject(socket.userName, p)) {
+    if (!projectSvc.canEditProject(socket.userName, p, auth)) {
       socket.emit('project-update-error', '你没有修改此项目的权限');
       return;
     }
@@ -569,12 +592,13 @@ io.on('connection', (socket) => {
     // 记录操作历史（用于撤回）
     pushProjectOp(p.id, socket.userName, 'update', before, JSON.parse(JSON.stringify(p.data || {})));
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-delete', (id) => {
+    if (!validateEventPayload('project-delete', id).valid) return;
     const p = projects.find(x => x.id === id);
     if (!p) return;
-    if (!canDeleteProject(socket.userName, p)) {
+    if (!projectSvc.canDeleteProject(socket.userName, auth)) {
       socket.emit('project-update-error', '你没有删除此项目的权限');
       return;
     }
@@ -582,7 +606,7 @@ io.on('connection', (socket) => {
     socket.emit('project-deleted', id);
     addLog(socket.id, socket.userName || SERVER_NAME, 'deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-restore', (id) => {
     const p = projects.find(x => x.id === id);
@@ -591,7 +615,7 @@ io.on('connection', (socket) => {
     socket.emit('project-restored', id);
     addLog(socket.id, socket.userName || SERVER_NAME, 'restored', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-permanent-delete', (id) => {
     if (!socket.isAdmin) return;
@@ -600,7 +624,7 @@ io.on('connection', (socket) => {
     socket.emit('project-permanently-deleted', id);
     if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'permanently deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
-    saveProjects();
+    projectSvc.saveProjects();
   });
   socket.on('project-transfer', ({ ids, targetServerId }) => {
     const toSend = projects.filter(p => ids.includes(p.id)); if (!toSend.length) return;
@@ -639,19 +663,21 @@ io.on('connection', (socket) => {
     socket.emit('admin-users-list', list);
   });
   socket.on('admin-change-password', async ({ targetName, newPassword }) => {
+    if (!validateString(targetName, 50) || !validateString(newPassword, 100)) return;
     if (!socket.isAdmin || !users[targetName] || users[targetName].isAdmin || !newPassword) return;
-    users[targetName].passwordHash = await hashPwd(newPassword);
+    users[targetName].passwordHash = await auth.hashPwd(newPassword);
     users[targetName].pwdLegacy = false;
-    saveUsers();
+    auth.saveUsers();
     broadcastOnlineUsers();
     addLog(socket.id, socket.userName, 'changed password for', 'system', targetName);
   });
   socket.on('admin-ban-user', ({ targetName, fingerprint }) => {
+    if (!validateString(targetName, 50) || (fingerprint && !validateString(fingerprint, 200))) return;
     if (!socket.isAdmin) return;
     if (targetName && users[targetName]) {
       if (users[targetName].isAdmin) return;
       users[targetName].isBanned = true;
-      saveUsers();
+      auth.saveUsers();
       for (const [sid, u] of onlineUsers) {
         if (u.name === targetName) {
           io.to(sid).emit('kicked', '你已被管理员拉黑');
@@ -665,7 +691,7 @@ io.on('connection', (socket) => {
       for (const n in users) {
         if (users[n].fingerprint === fingerprint && !users[n].isAdmin) users[n].isBanned = true;
       }
-      saveUsers();
+      auth.saveUsers();
       for (const [sid, u] of onlineUsers) {
         if (u.fingerprint === fingerprint) {
           io.to(sid).emit('kicked', '你的设备已被拉黑');
@@ -676,19 +702,21 @@ io.on('connection', (socket) => {
     broadcastOnlineUsers();
   });
   socket.on('admin-unban-user', ({ targetName }) => {
+    if (!validateString(targetName, 50)) return;
     if (!socket.isAdmin || !users[targetName]) return;
     users[targetName].isBanned = false;
-    saveUsers();
+    auth.saveUsers();
     addLog(socket.id, socket.userName, 'unbanned', 'system', targetName);
     broadcastOnlineUsers();
   });
 
   // ── 角色管理 ──
   socket.on('admin-set-role', ({ targetName, role }) => {
+    if (!validateString(targetName, 50) || !['viewer', 'commenter', 'editor'].includes(role)) return;
     if (!socket.isAdmin || !users[targetName] || users[targetName].isAdmin) return;
     if (!['editor', 'commenter', 'viewer'].includes(role)) return;
     users[targetName].role = role;
-    saveUsers();
+    auth.saveUsers();
     addLog(socket.id, socket.userName, 'set role', 'system', `${targetName} → ${role}`);
     broadcastOnlineUsers();
     // 通知目标用户角色变更
@@ -715,16 +743,17 @@ io.on('connection', (socket) => {
 
   socket.on('check-edit-permission', () => {
     if (!socket.userName) { socket.emit('edit-permission', { allowed: false }); return; }
-    socket.emit('edit-permission', { allowed: canEdit(socket.userName) });
+    socket.emit('edit-permission', { allowed: auth.canEdit(socket.userName) });
   });
 
   socket.on('check-comment-permission', () => {
     if (!socket.userName) { socket.emit('comment-permission', { allowed: false }); return; }
-    socket.emit('comment-permission', { allowed: canComment(socket.userName) });
+    socket.emit('comment-permission', { allowed: auth.canComment(socket.userName) });
   });
 
   // ── 用户 → 管理员消息 ──
   socket.on('user-message-to-admin', (text) => {
+    if (!validateString(text, 500)) return;
     if (!socket.userName) return;
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
@@ -736,6 +765,7 @@ io.on('connection', (socket) => {
 
   // ── 忘记密码 ──
   socket.on('forgot-password-request', ({ name, newPassword, reason }) => {
+    if (!validateString(name, 50) || !validateString(newPassword, 100) || !validateString(reason, 200)) { socket.emit('forgot-password-result', { ok: false, error: '参数无效' }); return; }
     const userName = (name || '').trim();
     if (!userName || !users[userName]) {
       socket.emit('forgot-password-result', { ok: false, error: '用户不存在' });
@@ -768,9 +798,9 @@ io.on('connection', (socket) => {
     passwordResets = passwordResets.filter(r => r.id !== requestId);
     savePasswordResets();
     if (approve && name && users[name] && !users[name].isAdmin) {
-      users[name].passwordHash = await hashPwd(newPassword || '');
+      users[name].passwordHash = await auth.hashPwd(newPassword || '');
       users[name].pwdLegacy = false;
-      saveUsers();
+      auth.saveUsers();
       addLog(socket.id, socket.userName, 'approved password reset', 'system', name);
       for (const [sid, u] of onlineUsers) {
         if (u.name === name) io.to(sid).emit('kicked', '管理员已重置你的密码，请重新登录');
@@ -782,6 +812,7 @@ io.on('connection', (socket) => {
 
   // ── 用户对用户私聊 ──
   socket.on('user-message-to-user', ({ target, text }) => {
+    if (!validateEventPayload('user-message-to-user', { target, text }).valid) return;
     if (!socket.userName || !target || !text) return;
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
@@ -839,8 +870,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('annotation-create', ({ documentId, anchor, content }) => {
+    if (!validateEventPayload('annotation-create', { documentId, anchor, content }).valid) return;
     if (!socket.userName) { socket.emit('annotation-error', '请先登录'); return; }
-    if (!canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
+    if (!auth.canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
     if (!documentId || !content || !content.text) { socket.emit('annotation-error', '批注内容不能为空'); return; }
     const ann = {
       id: uuid().slice(0, 12),
@@ -860,8 +892,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('annotation-reply', ({ annotationId, text }) => {
+    if (!validateEventPayload('annotation-reply', { annotationId, text }).valid) return;
     if (!socket.userName) { socket.emit('annotation-error', '请先登录'); return; }
-    if (!canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
+    if (!auth.canComment(socket.userName)) { socket.emit('annotation-error', '你没有评论权限'); return; }
     const ann = annotations.find(a => a.id === annotationId);
     if (!ann) { socket.emit('annotation-error', '批注不存在'); return; }
     const reply = { userId: socket.userName, text: text.trim(), timestamp: Date.now() };
@@ -873,6 +906,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('annotation-update-status', ({ annotationId, status }) => {
+    if (!validateEventPayload('annotation-update-status', { annotationId, status }).valid) return;
     if (!socket.userName) return;
     const ann = annotations.find(a => a.id === annotationId);
     if (!ann) { socket.emit('annotation-error', '批注不存在'); return; }
@@ -887,6 +921,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('annotation-delete', ({ annotationId }) => {
+    if (!validateEventPayload('annotation-delete', { annotationId }).valid) return;
     if (!socket.userName) return;
     const ann = annotations.find(a => a.id === annotationId);
     if (!ann) return;
@@ -900,18 +935,20 @@ io.on('connection', (socket) => {
 
   // ── 项目可见性 ──
   socket.on('project-set-visibility', ({ projectId, visibility }) => {
+    if (!validateEventPayload('project-set-visibility', { projectId, visibility }).valid) return;
     if (!['private', 'public-read', 'public-edit'].includes(visibility)) return;
     const p = projects.find(x => x.id === projectId);
-    if (!p || !canChangeVisibility(socket.userName, p)) { socket.emit('project-update-error', '你没有权限修改项目可见性'); return; }
+    if (!p || !projectSvc.canChangeVisibility(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有权限修改项目可见性'); return; }
     p.visibility = visibility;
     p.updatedAt = Date.now();
-    saveProjects();
+    projectSvc.saveProjects();
     io.emit('project-visibility-changed', { projectId, visibility, changedBy: socket.userName });
     addLog(socket.id, socket.userName, 'changed visibility', p.type, p.name + ' → ' + visibility);
   });
 
   // ── 操作撤回/恢复 ──
   socket.on('project-undo', ({ projectId }) => {
+    if (!validateEventPayload('project-undo', { projectId }).valid) return;
     if (!socket.userName) return;
     const p = projects.find(x => x.id === projectId);
     if (!p) return;
@@ -927,13 +964,14 @@ io.on('connection', (socket) => {
     projectRedoOps.get(projectId).push({ ...op, after: op.before, before: op.after });
     const redoStack = projectRedoOps.get(projectId);
     if (redoStack.length > 50) redoStack.splice(0, redoStack.length - 50);
-    saveProjects();
+    projectSvc.saveProjects();
     socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
     socket.emit('project-undo-result', { ok: true, userName: socket.userName });
     addLog(socket.id, socket.userName, 'undo', p.type, p.name);
   });
 
   socket.on('project-redo', ({ projectId }) => {
+    if (!validateEventPayload('project-redo', { projectId }).valid) return;
     if (!socket.userName) return;
     const p = projects.find(x => x.id === projectId);
     if (!p) return;
@@ -946,7 +984,7 @@ io.on('connection', (socket) => {
     redoStack.splice(idx.i, 1);
     if (!projectOps.has(projectId)) projectOps.set(projectId, []);
     projectOps.get(projectId).push({ ...op, before: op.before, after: op.after });
-    saveProjects();
+    projectSvc.saveProjects();
     socket.emit('project-updated', { id: p.id, name: p.name, data: p.data, updatedAt: p.updatedAt });
     socket.emit('project-redo-result', { ok: true, userName: socket.userName });
     addLog(socket.id, socket.userName, 'redo', p.type, p.name);
@@ -964,7 +1002,7 @@ function handleBridgeMessage(fromId, msg) {
   try {
     switch (msg.type) {
       case 'projects-sync':
-        mergeProjects(msg.projects);
+        projectSvc.mergeProjects(msg.projects);
         broadcastToBrowsers({ type: 'projects-update' });
         broadcastToPeers(msg, fromId);
         break;
@@ -1008,14 +1046,6 @@ function handleBridgeMessage(fromId, msg) {
 }
 
 // ─── 工具函数 ────────────────────────────────────────────
-function mergeProjects(remoteList) {
-  remoteList.forEach(rp => {
-    const local = projects.find(p => p.id === rp.id);
-    if (!local) projects.push({...rp});
-    else if (rp.updatedAt > local.updatedAt) Object.assign(local, rp);
-  });
-}
-
 function broadcastToBrowsers(data) { io.emit('bridge-message', data); }
 
 function broadcastToPeers(msg, excludeId) {
@@ -1068,22 +1098,6 @@ fenjingNsp.on('connection', (socket) => {
   });
 });
 
-function getDefaultData(type) {
-  switch (type) {
-    case 'script': return { acts: [] };
-    case 'mindmap': return { nodes: [], edges: [] };
-    case 'story': return { chapters: [] };
-    case 'folder': return { children: [] };
-    case 'project': return { items: [] };
-    default: return {};
-  }
-}
-
-function getDefaultItemName(type) {
-  const names = { script: '新剧本', mindmap: '新导图', story: '新故事', storyboard: '新分镜' };
-  return names[type] || '新项目';
-}
-
 // ─── 主动连接对方（UDP 发现后调用） ────────────────────
 let connectPeerId = 0;
 
@@ -1130,7 +1144,7 @@ function connectToPeer(serverId, name, ip, port) {
     sock.on('disconnect', () => handlePeerDisconnect(realServerId));
   });
 
-  sock.on('connect_error', () => {});
+  sock.on('connect_error', (err) => { /* 桥接连接失败 */ });
   setTimeout(() => { if (!sock.connected) sock.close(); }, 10000);
 }
 
@@ -1173,7 +1187,7 @@ function startServer(port) {
     for (const name of Object.keys(os.networkInterfaces()))
       for (const iface of os.networkInterfaces()[name])
         if (iface.family === 'IPv4' && !iface.internal) { ip = iface.address; break; }
-  } catch (_) {}
+  } catch (_) { /* 获取本机 IP 失败，使用 localhost */ }
   console.log('╔══════════════════════════════════════════╗');
   console.log(JOIN_TARGET ? '║    🧪 测试实例 (--join 模式)              ║' : '║    🎬 多机协作创作工作室 v2.0            ║');
   console.log('╠══════════════════════════════════════════╣');

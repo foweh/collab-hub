@@ -91,23 +91,43 @@ let searchActive = false;
 let searchQuery = '';
 
 function startSearch() {
-  const q = prompt('搜索节点:', searchQuery);
-  if (q === null) { searchActive = false; render(); return; }
-  searchQuery = q.trim();
-  searchActive = !!searchQuery;
-  render();
-  if (searchActive) {
-    const found = nodes.filter(n => (n.text||'').includes(searchQuery));
-    if (found.length > 0) {
-      selectedIds.clear();
-      selectedIds.add(found[0].id);
-      // 定位到第一个结果
-      const n = found[0];
-      camera.x = canvas.width / 2 - (n.x + (n.width||NODE_MIN_W)/2) * camera.zoom;
-      camera.y = canvas.height / 2 - (n.y + NODE_H/2) * camera.zoom;
-      render();
-    }
+  // 使用页面内搜索输入，而非 prompt()
+  let input = document.getElementById('mm-search-input');
+  if (!input) {
+    input = document.createElement('input');
+    input.id = 'mm-search-input';
+    input.type = 'text';
+    input.placeholder = '搜索节点...';
+    input.style.cssText = 'position:absolute;top:8px;right:8px;z-index:100;padding:6px 12px;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;width:180px;outline:none';
+    const parent = document.getElementById('mindmap-editor');
+    parent.appendChild(input);
+    input.addEventListener('blur', () => {
+      setTimeout(() => { if (input && input !== document.activeElement) { input.remove(); searchActive = false; render(); } }, 200);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        searchQuery = input.value.trim();
+        searchActive = !!searchQuery;
+        input.remove();
+        render();
+        if (searchActive) {
+          const found = nodes.filter(n => (n.text||'').includes(searchQuery));
+          if (found.length > 0) {
+            selectedIds.clear();
+            selectedIds.add(found[0].id);
+            const n = found[0];
+            camera.x = canvas.width / 2 - (n.x + (n.width||NODE_MIN_W)/2) * camera.zoom;
+            camera.y = canvas.height / 2 - (n.y + NODE_H/2) * camera.zoom;
+            render();
+          }
+        }
+      }
+      if (e.key === 'Escape') { input.remove(); searchActive = false; render(); }
+    });
   }
+  input.value = searchQuery || '';
+  input.focus();
+  input.select();
 }
 
 // ─── 尺寸管理 ────────────────────────────────────────────

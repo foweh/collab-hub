@@ -192,12 +192,12 @@ if (!savedAuth || !savedAuth.name) {
 let myName = savedAuth ? savedAuth.name : '';
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 let myRole = savedAuth ? (savedAuth.role || (isAdmin ? 'editor' : 'commenter')) : 'commenter';
-let myPassword = savedAuth ? savedAuth.password : '';
+let myToken = savedAuth ? savedAuth.token : '';
 
 // 连接后自动用已保存的身份重新登录
 socket.on('connect', () => {
   if (myName) {
-    socket.emit('join', { name: myName, password: myPassword, fingerprint: myFingerprint });
+    socket.emit('join', { name: myName, token: myToken, fingerprint: myFingerprint });
   }
 });
 
@@ -1653,6 +1653,16 @@ function showAnnotationCreateModal() {
   const sel = window.getSelection();
   annSelectedText = sel ? sel.toString().trim() : '';
 
+  // 尝试获取实际选择范围偏移
+  let startOffset = 0, endOffset = annSelectedText.length;
+  try {
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      startOffset = range.startOffset;
+      endOffset = range.endOffset;
+    }
+  } catch(_) {}
+
   const selDisplay = document.getElementById('ann-selected-text');
   if (selDisplay) {
     selDisplay.textContent = annSelectedText || '(未选中文本 - 批注将作为全局评论)';
@@ -1682,8 +1692,8 @@ document.getElementById('ann-create-confirm')?.addEventListener('click', functio
 
   const anchor = annSelectedText ? {
     type: 'text-range',
-    startOffset: 0,
-    endOffset: annSelectedText.length,
+    startOffset: startOffset,
+    endOffset: endOffset,
     text: annSelectedText
   } : { type: 'text-range', startOffset: 0, endOffset: 0, text: '' };
 

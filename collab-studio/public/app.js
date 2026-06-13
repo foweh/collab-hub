@@ -514,83 +514,119 @@ createInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeCreateModal();
 });
 
-// 新建项目按钮 - 支持选择类型
+// ─── 新建项目按钮（只在我的项目页面可用）─────────────────
 $('#new-project-btn').addEventListener('click', () => {
-  // 类型选择弹窗
-  const types = [
-    { type: 'project', icon: '📂', label: '项目', hint: '容器项目，可包含多种内容' },
-    { type: 'script', icon: '📜', label: '剧本', hint: '剧本写作' },
-    { type: 'mindmap', icon: '🧠', label: '导图', hint: '思维导图' },
-    { type: 'story', icon: '📖', label: '故事', hint: '故事创作' },
-    { type: 'storyboard', icon: '🎬', label: '分镜', hint: '分镜工具' },
+  // 检查是否在我的项目页面
+  const projectPanel = document.getElementById('panel-projects');
+  if (!projectPanel || !projectPanel.classList.contains('active')) {
+    showAlert('请先切换到「我的项目」页面', '提示', '📋');
+    // 自动切换到项目页面
+    document.querySelector('.nav-btn[data-module="projects"]')?.click();
+    return;
+  }
+
+  // 项目类型配置
+  const projectTypes = [
+    { type: 'project', icon: '📂', label: '项目容器', description: '文件夹式容器，可包含多种内容', defaultName: '新项目' },
+    { type: 'script', icon: '📜', label: '剧本', description: '专业剧本写作工具', defaultName: '新剧本' },
+    { type: 'mindmap', icon: '🧠', label: '思维导图', description: '梳理思路和创意', defaultName: '新导图' },
+    { type: 'story', icon: '📖', label: '故事', description: '故事创作编辑器', defaultName: '新故事' },
+    { type: 'storyboard', icon: '🎬', label: '分镜', description: '影视分镜制作工具', defaultName: '新分镜' },
   ];
-  const buttonsHtml = types.map(t =>
-    `<button class="type-btn" data-type="${t.type}">${t.icon} ${t.label}<span class="type-hint">${t.hint}</span></button>`
-  ).join('');
-  
+
+  // 创建弹窗
   const overlay = document.createElement('div');
   overlay.className = 'modal-mask';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:420px">
-      <h3 style="margin-bottom:12px">选择项目类型</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
-        ${buttonsHtml}
+    <div class="modal" style="max-width:480px;">
+      <h3 style="margin-bottom:16px">✨ 创建新项目</h3>
+      
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:16px">
+        ${projectTypes.map(t => `
+          <button class="type-card" data-type="${t.type}" data-name="${t.defaultName}">
+            <span class="type-icon">${t.icon}</span>
+            <span class="type-label">${t.label}</span>
+            <span class="type-desc">${t.description}</span>
+          </button>
+        `).join('')}
       </div>
-      <div id="type-project-name" style="display:none;margin-bottom:16px">
+
+      <div id="create-name-section" style="display:none;margin-bottom:16px">
         <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">项目名称</label>
-        <input type="text" id="new-project-name-input" class="modal-input" placeholder="输入项目名称..." style="width:100%">
+        <input type="text" id="create-project-name" class="modal-input" style="width:100%" placeholder="输入项目名称...">
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px">
+          💡 提示：同类型项目名称不能重复
+        </div>
       </div>
+
       <div style="display:flex;justify-content:flex-end;gap:8px">
-        <button class="btn" id="type-select-cancel">取消</button>
-        <button class="btn btn-primary" id="type-select-confirm" disabled>创建</button>
+        <button class="btn" id="create-cancel">取消</button>
+        <button class="btn btn-primary" id="create-confirm" disabled>创建</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
-  
+
+  // DOM 引用
+  const nameSection = overlay.querySelector('#create-name-section');
+  const nameInput = overlay.querySelector('#create-project-name');
+  const confirmBtn = overlay.querySelector('#create-confirm');
   let selectedType = null;
-  const nameInput = overlay.querySelector('#new-project-name-input');
-  const confirmBtn = overlay.querySelector('#type-select-confirm');
-  const nameSection = overlay.querySelector('#type-project-name');
-  
-  overlay.querySelectorAll('.type-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedType = btn.dataset.type;
-      overlay.querySelectorAll('.type-btn').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
+  let defaultName = '';
+
+  // 类型选择事件
+  overlay.querySelectorAll('.type-card').forEach(card => {
+    card.addEventListener('click', () => {
+      // 移除其他选中状态
+      overlay.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      
+      selectedType = card.dataset.type;
+      defaultName = card.dataset.name;
+      
+      // 如果是项目容器，显示名称输入
       if (selectedType === 'project') {
         nameSection.style.display = 'block';
+        nameInput.value = '';
         nameInput.focus();
-        confirmBtn.disabled = !nameInput.value.trim();  // 同步按钮状态
+        confirmBtn.disabled = true;
       } else {
         nameSection.style.display = 'none';
         confirmBtn.disabled = false;
       }
     });
   });
-  
+
+  // 名称输入事件
   nameInput.addEventListener('input', () => {
     confirmBtn.disabled = !nameInput.value.trim();
   });
+
   nameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && nameInput.value.trim()) confirmBtn.click();
-    if (e.key === 'Escape') overlay.remove();
+    if (e.key === 'Enter' && nameInput.value.trim()) {
+      confirmBtn.click();
+    } else if (e.key === 'Escape') {
+      overlay.remove();
+    }
   });
-  
+
+  // 关闭事件
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove();
   });
-  overlay.querySelector('#type-select-cancel').addEventListener('click', () => overlay.remove());
+
+  overlay.querySelector('#create-cancel').addEventListener('click', () => overlay.remove());
+
+  // 确认创建
   confirmBtn.addEventListener('click', () => {
     if (!selectedType) return;
-    if (selectedType === 'project') {
-      const name = nameInput.value.trim() || '新项目';
-      overlay.remove();
-      createDefaultProject('project', name);
-    } else {
-      overlay.remove();
-      createDefaultProject(selectedType, '新' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[selectedType]);
-    }
+    
+    const projectName = selectedType === 'project' 
+      ? (nameInput.value.trim() || defaultName)
+      : defaultName;
+    
+    overlay.remove();
+    createDefaultProject(selectedType, projectName);
   });
 });
 

@@ -365,6 +365,11 @@ function sanitizeString(v, maxLen = MAX_STR_LEN) {
 }
 
 function validateEventPayload(eventName, data) {
+  // 特殊处理：project-delete 支持字符串ID格式
+  if (eventName === 'project-delete' && typeof data === 'string') {
+    return { valid: validateId(data) };
+  }
+  
   if (!data || typeof data !== 'object') return { valid: false, error: '无效的请求数据' };
   
   switch (eventName) {
@@ -386,13 +391,6 @@ function validateEventPayload(eventName, data) {
     
     case 'project-update':
       if (!validateId(data.id))
-        return { valid: false, error: '项目ID无效' };
-      return { valid: true };
-    
-    case 'project-delete':
-      // 支持字符串ID和对象格式
-      const deleteId = typeof data === 'string' ? data : data.id;
-      if (!validateId(deleteId))
         return { valid: false, error: '项目ID无效' };
       return { valid: true };
     

@@ -196,6 +196,34 @@ app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 
+// ─── 登录诊断端点 ────────────────────────────────────────
+app.get('/api/auth-check', async (req, res) => {
+  const { name, pwd } = req.query;
+  const result = { ok: false, checks: {} };
+  if (!name) return res.json({ ...result, error: '缺少 name 参数' });
+
+  const userName = (name || '').trim();
+  const user = users[userName];
+
+  result.checks.userExists = !!user;
+  result.checks.isAdmin = user ? user.isAdmin : false;
+  result.checks.isBanned = user ? user.isBanned : false;
+  result.checks.fingerprint = user ? user.fingerprint : null;
+  result.checks.hasHash = user ? !!(user.passwordHash || user.password) : false;
+  result.checks.hashField = user ? (user.passwordHash || user.password || '').slice(0, 20) + '...' : null;
+
+  if (user && pwd) {
+    try {
+      result.checks.passwordMatch = await auth.validatePassword(userName, pwd);
+    } catch (e) {
+      result.checks.passwordMatch = false;
+      result.checks.error = e.message;
+    }
+  }
+  result.ok = !!(user && !user.isBanned && (!pwd || result.checks.passwordMatch));
+  res.json(result);
+});
+
 // ─── 白板前端（Vue 3 新前端） ────────────────────────────
 const STUDIO_VUE_DIST = path.join(__dirname, '..', 'studio-vue', 'dist');
 app.use('/studio', express.static(STUDIO_VUE_DIST));
@@ -439,9 +467,11 @@ io.on('connection', (socket) => {
     const userName = (name || '').trim();
     if (!userName) return;
     const ip = (socket.handshake.address || '').replace(/^::ffff:/, '');
+    console.log(`[login] 尝试登录: 用户名="${userName}" IP=${ip} token=${token ? '有' : '无'} fingerprint=${fingerprint ? '有' : '无'}`);
     // 管理员豁免频率限制
     const isAdminUser = users[userName]?.isAdmin || false;
     if (!isAdminUser && !checkRateLimit(`login:${ip}`, 20, 60000)) {
+      console.log(`[login] 失败: 登录频繁 IP=${ip}`);
       socket.emit('login-error', '登录尝试过于频繁，请稍后再试');
       socket.disconnect();
       return;
@@ -451,6 +481,7 @@ io.on('connection', (socket) => {
     if (token) {
       const tokenUser = auth.validateSessionToken(token);
       if (tokenUser === userName) {
+        console.log(`[login] 成功: token 验证通过 用户="${userName}"`);
         socket.userName = userName;
         socket.isAdmin = users[userName]?.isAdmin || false;
         onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin: socket.isAdmin, fingerprint: fingerprint || '' });
@@ -459,14 +490,17 @@ io.on('connection', (socket) => {
         socket.emit('login-success', { userName, isAdmin: socket.isAdmin, hasPassword: !!users[userName]?.passwordHash, token });
         return;
       }
+      console.log(`[login] token 无效，回退到密码验证`);
       // token 无效 → 回退到密码验证
     }
     if (fingerprint && auth.isFingerprintBanned(fingerprint)) {
+      console.log(`[login] 失败: 指纹被封 fingerprint=${fingerprint}`);
       socket.emit('login-error', '你的设备已被拉黑，无法进入');
       socket.disconnect();
       return;
     }
     if (auth.isNameBanned(userName)) {
+      console.log(`[login] 失败: 用户名被封 userName="${userName}"`);
       socket.emit('login-error', '该用户已被拉黑');
       socket.disconnect();
       return;
@@ -476,28 +510,36 @@ io.on('connection', (socket) => {
     let isAdmin = false;
 
     if (users[userName] && users[userName].isAdmin) {
+      console.log(`[login] 管理员用户 "${userName}" 正在验证密码...`);
       if (await auth.validatePassword(userName, password || '')) {
         isAdmin = true;
+        console.log(`[login] 成功: 管理员 "${userName}" 密码验证通过`);
       } else {
+        console.log(`[login] 失败: 管理员 "${userName}" 密码错误`);
         socket.emit('login-error', '管理员密码错误');
         return;
       }
     } else {
+      console.log(`[login] 普通用户 "${userName}" 登录流程`);
       if (users[userName]) {
         const record = users[userName];
         if (record.passwordHash) {
           if (!(await auth.validatePassword(userName, password || ''))) {
+            console.log(`[login] 失败: 用户 "${userName}" 密码错误`);
             socket.emit('login-error', '密码错误，请重试');
             return;
           }
+          console.log(`[login] 用户 "${userName}" 密码验证通过`);
         } else if (password) {
           record.passwordHash = await auth.hashPwd(password);
+          console.log(`[login] 用户 "${userName}" 首次设置密码`);
         }
       } else {
+        console.log(`[login] 新用户 "${userName}" 自动注册`);
         users[userName] = {
           passwordHash: password ? await auth.hashPwd(password) : '',
           isAdmin: false, fingerprint: '', isBanned: false,
-          role: 'commenter'
+          role: 'editor'
         };
       }
     }

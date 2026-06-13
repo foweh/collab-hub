@@ -41,22 +41,33 @@ async function hashPwd(pwd) {
 }
 
 async function validatePassword(name, pwd) {
-  if (!users[name]) return false;
+  if (!users[name]) { console.log(`[auth] validatePassword: 用户 ${name} 不存在`); return false; }
   const record = users[name];
   const hashField = record.passwordHash || record.password;
-  if (!hashField) return !pwd;
+  if (!hashField) {
+    console.log(`[auth] validatePassword: 用户 ${name} 无密码`);
+    return !pwd;
+  }
+  if (typeof pwd !== 'string') {
+    console.log(`[auth] validatePassword: 用户 ${name} 密码参数类型错误: ${typeof pwd}`);
+    return false;
+  }
   if (hashField.length < 20) {
     // 旧版 SHA256 → 升级到 bcrypt
     const oldHash = crypto.createHash('sha256').update(pwd || '').digest('hex').slice(0, 16);
     if (hashField === oldHash) {
+      console.log(`[auth] validatePassword: 用户 ${name} 旧版 SHA256 密码验证通过，升级到 bcrypt`);
       record.passwordHash = await bcrypt.hash(pwd || '', SALT_ROUNDS);
       record.pwdLegacy = false;
       saveUsers();
       return true;
     }
+    console.log(`[auth] validatePassword: 用户 ${name} 旧版 SHA256 密码不匹配`);
     return false;
   }
-  return await bcrypt.compare(pwd || '', hashField);
+  const match = await bcrypt.compare(pwd || '', hashField);
+  console.log(`[auth] validatePassword: 用户 ${name} bcrypt 验证结果: ${match}`);
+  return match;
 }
 
 // ─── 管理员初始化 ─────────────────────────────────────
@@ -118,7 +129,7 @@ function getOrCreateUser(name, password) {
     users[name] = {
       passwordHash: password ? hashPwdSync(password) : '',
       isAdmin: false, fingerprint: '', isBanned: false,
-      role: 'commenter'
+      role: 'editor'
     };
   }
   return users[name];
@@ -139,7 +150,13 @@ function hashPwdSync(pwd) { return bcrypt.hashSync(pwd || '', SALT_ROUNDS); }
 function isNameBanned(name) { return users[name] && users[name].isBanned; }
 
 function isFingerprintBanned(fp) {
-  for (const n in users) if (users[n].fingerprint === fp && users[n].isBanned) return true;
+  if (!fp) return false;
+  for (const n in users) {
+    if (users[n].fingerprint === fp && users[n].isBanned) {
+      console.log(`[auth] isFingerprintBanned: 用户 ${n} 被禁，指纹 ${fp} 被封`);
+      return true;
+    }
+  }
   return false;
 }
 

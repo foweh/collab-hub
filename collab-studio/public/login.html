@@ -167,12 +167,54 @@
   <script>
   // ─── 登录页逻辑 ──────────────────────────────────────
   (function() {
-    const socket = io();
+    const socket = io({
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 3,
+      timeout: 5000,
+    });
 
     const loginName  = document.getElementById('login-name');
     const loginPwd   = document.getElementById('login-pwd');
     const loginError = document.getElementById('login-error');
     const loginBtn   = document.getElementById('login-btn');
+
+    // 连接状态显示
+    const statusEl = document.createElement('div');
+    statusEl.style.cssText = 'font-size:11px;text-align:center;margin-top:8px;color:var(--text-dim)';
+    statusEl.textContent = '正在连接服务器...';
+    loginBtn.parentNode.insertBefore(statusEl, loginBtn.nextSibling);
+
+    let connected = false;
+
+    socket.on('connect', () => {
+      connected = true;
+      statusEl.textContent = '已连接';
+      statusEl.style.color = 'var(--success, #4caf50)';
+      loginBtn.disabled = false;
+    });
+
+    socket.on('disconnect', () => {
+      connected = false;
+      statusEl.textContent = '连接已断开，正在重连...';
+      statusEl.style.color = 'var(--danger, #f44336)';
+      loginBtn.disabled = true;
+    });
+
+    socket.on('connect_error', () => {
+      connected = false;
+      statusEl.textContent = '连接失败，请确认服务器已启动';
+      statusEl.style.color = 'var(--danger, #f44336)';
+      loginBtn.disabled = false;
+    });
+
+    // 3秒超时检测
+    setTimeout(() => {
+      if (!connected) {
+        statusEl.textContent = '连接超时，请检查服务器是否运行';
+        statusEl.style.color = 'var(--danger, #f44336)';
+        loginBtn.disabled = false;
+      }
+    }, 4000);
 
     function showError(msg) {
       loginError.textContent = msg;
@@ -186,6 +228,7 @@
     function doLogin() {
       const name = loginName.value.trim();
       if (!name) { showError('请输入用户名'); return; }
+      if (!connected) { showError('尚未连接到服务器，请等待...'); return; }
       loginBtn.disabled = true;
       loginBtn.textContent = '登录中...';
       loginError.style.display = 'none';

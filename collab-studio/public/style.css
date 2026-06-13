@@ -298,6 +298,42 @@ body {
 .project-card.folder .p-type { color: #ffd700; }
 .project-card.folder .p-meta { color: #c8a84e; }
 
+/* ─── 创建按钮区域 ─── */
+.create-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.create-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  background: var(--surface2);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: 0.2s;
+}
+.create-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface3);
+  transform: translateY(-2px);
+}
+.create-btn .create-icon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+.create-btn .create-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* ─── 设备卡片 ─── */
 .device-grid { display: flex; flex-direction: column; gap: 8px; }
 .device-card {

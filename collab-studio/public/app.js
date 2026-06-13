@@ -626,6 +626,7 @@ function renderProjects() {
         
         // 获取当前文件夹内的同类型项目名称
         const getExistingNames = () => {
+          const currentFolderId = currentFolderPath.length > 0 ? currentFolderPath[currentFolderPath.length - 1].id : null;
           if (currentFolderId) {
             return projects.filter(p => !p.deleted && p.parentId === currentFolderId && p.type === (type === 'storyboard' ? 'project' : type)).map(p => p.name);
           } else {
@@ -693,6 +694,7 @@ function renderProjects() {
           const itemName = nameInput.value.trim() || '未命名';
           overlay.remove();
           const projectData = type === 'folder' ? { children: [] } : {};
+          const currentFolderId = currentFolderPath.length > 0 ? currentFolderPath[currentFolderPath.length - 1].id : null;
           socket.emit('project-create', { 
             type: type === 'storyboard' ? 'project' : type, 
             name: itemName, 

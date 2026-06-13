@@ -912,6 +912,86 @@ document.getElementById('lang-toggle-btn').addEventListener('click', () => {
   document.getElementById('lang-toggle-btn').textContent = currentLang === 'zh' ? '🇨🇳 中文' : '🇬🇧 English';
 });
 
+// ─── 帮助按钮 ──────────────────────────────────────────
+document.getElementById('help-btn').addEventListener('click', () => {
+  const helpContent = `
+    <div style="max-height:60vh;overflow-y:auto;padding-right:8px">
+      <h3 style="margin-bottom:16px;color:var(--accent)">🎬 协作创作工作室帮助</h3>
+      
+      <div style="margin-bottom:16px">
+        <h4 style="margin-bottom:8px">📂 项目管理</h4>
+        <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
+          <li><strong>新建项目</strong>: 点击「+ 新建项目」选择类型创建</li>
+          <li><strong>项目容器</strong>: 选择「项目」类型可作为文件夹使用</li>
+          <li><strong>删除项目</strong>: 点击项目卡片右上角 × 按钮</li>
+          <li><strong>回收站</strong>: 点击垃圾桶图标查看已删除项目</li>
+        </ul>
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <h4 style="margin-bottom:8px">✍️ 创作工具</h4>
+        <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
+          <li><strong>📜 剧本编辑器</strong>: 编写和管理剧本章节</li>
+          <li><strong>🧠 思维导图</strong>: 梳理思路和创意</li>
+          <li><strong>📖 故事编辑器</strong>: 创作故事情节</li>
+          <li><strong>🎬 分镜工具</strong>: 绘制影视分镜和镜头</li>
+        </ul>
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <h4 style="margin-bottom:8px">🤝 协作功能</h4>
+        <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
+          <li><strong>局域网协作</strong>: 双方打开局域网开关自动发现</li>
+          <li><strong>项目发送</strong>: 选择项目后点击发送给协作方</li>
+          <li><strong>实时同步</strong>: 编辑内容自动同步给协作方</li>
+        </ul>
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <h4 style="margin-bottom:8px">🔒 权限管理</h4>
+        <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
+          <li><strong>私密</strong>: 仅自己可见</li>
+          <li><strong>公开-只读</strong>: 所有人可见但不可编辑</li>
+          <li><strong>公开-可编辑</strong>: 所有人可编辑</li>
+        </ul>
+      </div>
+      
+      <div style="margin-bottom:16px">
+        <h4 style="margin-bottom:8px">💡 使用技巧</h4>
+        <ul style="margin:0;padding-left:20px;color:var(--text-secondary);font-size:13px">
+          <li>创建「项目」类型作为容器，可包含多种内容</li>
+          <li>同类型项目名称不能重复，但不同类型可以</li>
+          <li>点击「➕ 其他」可创建自定义类型内容</li>
+          <li>分镜工具中点击镜头图片右下角可绘制画面</li>
+        </ul>
+      </div>
+      
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:12px;color:var(--text-dim)">
+        <p>管理员账户: 用户名「热合曼」密码「262752」</p>
+        <p>有问题请联系管理员</p>
+      </div>
+    </div>
+  `;
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-mask';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:500px;">
+      <h3 style="margin-bottom:12px">❓ 帮助中心</h3>
+      ${helpContent}
+      <div style="display:flex;justify-content:flex-end;margin-top:16px">
+        <button class="btn btn-primary" id="help-close">知道了</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  overlay.querySelector('#help-close').addEventListener('click', () => overlay.remove());
+});
+
 // ─── 管理员登录 ────────────────────────────────────────
 document.getElementById('admin-login-btn').addEventListener('click', () => {
   if (isAdmin) { showAlert('你已是管理员', '提示', '👑'); return; }

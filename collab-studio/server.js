@@ -606,8 +606,8 @@ io.on('connection', (socket) => {
   socket.on('project-create', (data) => {
     if (!validateEventPayload('project-create', data).valid) return;
     const name = data.name || '未命名';
-    // 重名检查：同级项目或文件夹不允许重名
-    if (projects.some(p => p.name === name && !p.deleted && p.type !== 'folder')) {
+    // 重名检查：同类型项目不允许重名（文件夹与其他类型可以同名）
+    if (projects.some(p => p.name === name && !p.deleted && p.type === data.type)) {
       socket.emit('project-update-error', '项目名称已存在');
       return;
     }

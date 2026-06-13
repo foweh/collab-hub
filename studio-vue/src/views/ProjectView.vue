@@ -101,6 +101,9 @@
           <div v-else-if="store.currentItem?.type === 'mindmap'" class="pp-detail-full">
             <MindmapView />
           </div>
+          <div v-else-if="store.currentItem?.type === 'storyboard'" class="pp-detail-full">
+            <iframe :src="storyboardUrl" class="pp-storyboard-frame" frameborder="0"></iframe>
+          </div>
           <WhiteboardView v-else :user-id="userId" :user-name="userName"
             :project-id="store.currentProjectId!"
             :item-id="store.currentItemId!" />
@@ -213,6 +216,13 @@ const projectItems = computed(() => {
   return p?.data?.items || []
 })
 
+// 分镜 iframe URL
+const storyboardUrl = computed(() => {
+  const item = store.currentItem
+  if (item?.type !== 'storyboard' || !store.currentProjectId) return ''
+  return `/storyboard?project=${store.currentProjectId}&item=${item.id}`
+})
+
 // ── 新建项目弹窗 ──
 const showCreateModal = ref(false)
 const newProjectName = ref('')
@@ -261,10 +271,7 @@ function deleteItem(projectId: string, itemId: string) {
 function openItem(p: Project, item: ProjectItem) {
   store.selectProject(p.id)
   store.selectItem(item.id)
-  // 分镜项目在新窗口打开独立应用
-  if (item.type === 'storyboard') {
-    window.open(`/storyboard?project=${p.id}&item=${item.id}`, '_blank')
-  }
+  // 分镜项目在当前页内嵌 iframe 显示，不跳新窗口
 }
 
 function projectIcon(type: string): string {
@@ -364,7 +371,9 @@ watch(showCreateModal, (val) => {
 /* 右侧详情 */
 .pp-detail { flex: 1; overflow-y: auto; }
 .pp-detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #888; font-size: 14px; }
-.pp-detail-content { height: 100%; } /* WhiteboardView 填满 */
+.pp-detail-content { height: 100%; }
+.pp-detail-full { height: 100%; }
+.pp-storyboard-frame { width: 100%; height: 100%; border: none; } /* WhiteboardView 填满 */
 
 /* 项目详情 */
 .pp-detail-project { padding: 24px; max-width: 600px; }

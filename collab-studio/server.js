@@ -604,15 +604,22 @@ io.on('connection', (socket) => {
 
   // ── 项目管理 ──
   socket.on('project-create', (data) => {
-    if (!validateEventPayload('project-create', data).valid) return;
+    console.log('收到 project-create 请求:', data);
+    if (!validateEventPayload('project-create', data).valid) {
+      console.log('验证失败');
+      return;
+    }
     const name = data.name || '未命名';
     // 重名检查：同类型项目不允许重名（文件夹与其他类型可以同名）
     if (projects.some(p => p.name === name && !p.deleted && p.type === data.type)) {
+      console.log('重名检查失败:', name);
       socket.emit('project-update-error', '项目名称已存在');
       return;
     }
     const p = { id: uuid().slice(0, 12), type: data.type, name, data: data.data || projectSvc.getDefaultData(data.type), createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME, visibility: 'private' };
-    projects.push(p); socket.emit('project-created', p);
+    projects.push(p); 
+    console.log('项目创建成功:', p);
+    socket.emit('project-created', p);
     addLog(socket.id, socket.userName || SERVER_NAME, 'created', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);
     projectSvc.saveProjects();

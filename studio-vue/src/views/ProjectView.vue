@@ -6,6 +6,11 @@
         <span class="pp-subtitle">白板 / 原型 / 设计 / 代码</span>
       </div>
       <div class="pp-actions">
+        <div class="pp-connection">
+          <span :class="['pp-dot', socketStore.connected ? 'online' : 'offline']"></span>
+          <span class="pp-conn-text">{{ socketStore.connected ? '已连接' : '未连接' }}</span>
+        </div>
+        <button v-if="!socketStore.connected" class="pp-btn" @click="connectServer">连接</button>
         <button class="pp-btn primary" @click="showCreateModal = true">+ 新建项目</button>
       </div>
     </header>
@@ -237,6 +242,16 @@ function typeLabel(type: string): string {
 }
 
 // Socket 连接
+function connectServer() {
+  const wsUrl = `http://${window.location.hostname}:3000`
+  let uid = localStorage.getItem('studio-user-id')
+  if (!uid) {
+    uid = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    localStorage.setItem('studio-user-id', uid)
+  }
+  const uname = localStorage.getItem('studio-user-name') || '用户' + uid.slice(0, 4)
+  socketStore.connect(wsUrl, uid, uname)
+}
 watch(() => socketStore.connected, (val) => {
   if (val && socketStore.socket) {
     store.setupSocket(socketStore.socket)
@@ -308,6 +323,12 @@ watch(showCreateModal, (val) => {
 .pd-add-label { font-size: 12px; color: #555; font-weight: 500; }
 
 /* 按钮 */
+.pp-actions { display: flex; align-items: center; gap: 8px; }
+.pp-connection { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: #f0f2f5; border-radius: 12px; }
+.pp-dot { width: 8px; height: 8px; border-radius: 50%; }
+.pp-dot.online { background: #34a853; }
+.pp-dot.offline { background: #ea4335; }
+.pp-conn-text { font-size: 11px; color: #666; }
 .pp-btn { padding: 8px 16px; border: 1px solid #dadce0; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .pp-btn.primary { background: #1a73e8; color: white; border: none; }
 .pp-btn:disabled { opacity: 0.4; cursor: default; }

@@ -264,6 +264,12 @@ socket.on('project-deleted', (id) => {
   renderProjects();
 });
 
+socket.on('project-permanently-deleted', (id) => {
+  const idx = projects.findIndex(p => p.id === id);
+  if (idx >= 0) projects.splice(idx, 1);
+  renderProjects();
+});
+
 socket.on('project-updated', (p) => {
   const idx = projects.findIndex(x => x.id === p.id);
   if (idx >= 0) projects[idx] = { ...projects[idx], ...p };

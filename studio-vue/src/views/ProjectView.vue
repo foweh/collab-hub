@@ -86,7 +86,14 @@
 
         <!-- 选中子项 → 展示编辑器 -->
         <div v-else class="pp-detail-content">
-          <WhiteboardView :user-id="userId" :user-name="userName"
+          <ScriptEditor v-if="store.currentItem?.type === 'script'"
+            :key="store.currentItemId" />
+          <StoryEditor v-else-if="store.currentItem?.type === 'story'"
+            :key="store.currentItemId" />
+          <div v-else-if="store.currentItem?.type === 'mindmap'" class="pp-detail-full">
+            <MindmapView />
+          </div>
+          <WhiteboardView v-else :user-id="userId" :user-name="userName"
             :project-id="store.currentProjectId!"
             :item-id="store.currentItemId!" />
         </div>
@@ -143,6 +150,9 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useProjectStore, type Project, type ProjectItem } from '../stores/project'
 import { useSocketStore } from '../stores/socket'
 import WhiteboardView from '../components/whiteboard/WhiteboardView.vue'
+import ScriptEditor from '../components/editor/ScriptEditor.vue'
+import StoryEditor from '../components/editor/StoryEditor.vue'
+import MindmapView from '../views/MindmapView.vue'
 
 const store = useProjectStore()
 const socketStore = useSocketStore()

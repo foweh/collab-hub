@@ -477,31 +477,36 @@ function switchModule(moduleName) {
 }
 
 // ─── 新建文件夹按钮 ──────────────────────────────────────
+console.log('正在初始化新建文件夹按钮...');
 const newProjectBtn = document.getElementById('new-project-btn');
+console.log('newProjectBtn 元素:', newProjectBtn);
+
 if (newProjectBtn) {
+  console.log('绑定点击事件...');
   newProjectBtn.addEventListener('click', () => {
+    console.log('新建文件夹按钮被点击');
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
-    overlay.innerHTML = `
-      <div class="modal-card" style="max-width:360px;">
-        <h3 style="margin-bottom:16px">📁 新建文件夹</h3>
-        <div style="margin-bottom:16px">
-          <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">文件夹名称</label>
-          <input type="text" id="new-folder-name" class="modal-input" style="width:100%" placeholder="输入文件夹名称..." autofocus>
-          <div style="font-size:12px;color:var(--text-dim);margin-top:4px">
-            💡 提示：同类型项目名称不能重复
-          </div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:8px">
-          <button class="btn" id="folder-cancel">取消</button>
-          <button class="btn btn-primary" id="folder-confirm" disabled>创建</button>
-        </div>
+    const modal = document.createElement('div');
+    modal.className = 'modal-card';
+    modal.style.maxWidth = '360px';
+    modal.innerHTML = `
+      <h3 style="margin-bottom:16px">📁 新建文件夹</h3>
+      <div style="margin-bottom:16px">
+        <label style="display:block;margin-bottom:4px;font-size:13px">文件夹名称</label>
+        <input type="text" id="new-folder-name" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)" placeholder="输入文件夹名称..." autofocus>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" id="folder-cancel">取消</button>
+        <button class="btn btn-primary" id="folder-confirm" disabled>创建</button>
       </div>
     `;
+    overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    console.log('弹窗已添加到页面');
 
-    const nameInput = overlay.querySelector('#new-folder-name');
-    const confirmBtn = overlay.querySelector('#folder-confirm');
+    const nameInput = document.getElementById('new-folder-name');
+    const confirmBtn = document.getElementById('folder-confirm');
 
     nameInput.addEventListener('input', () => {
       confirmBtn.disabled = !nameInput.value.trim();
@@ -519,14 +524,17 @@ if (newProjectBtn) {
       if (e.target === overlay) overlay.remove();
     });
 
-    overlay.querySelector('#folder-cancel').addEventListener('click', () => overlay.remove());
+    document.getElementById('folder-cancel').addEventListener('click', () => overlay.remove());
 
     confirmBtn.addEventListener('click', () => {
       const folderName = nameInput.value.trim() || '新建文件夹';
+      console.log('创建文件夹:', folderName);
       overlay.remove();
       socket.emit('project-create', { type: 'folder', name: folderName, data: { children: [] } });
     });
   });
+} else {
+  console.error('找不到 new-project-btn 元素！');
 }
 
 // ─── 回收站切换 ─────────────────────────────────────────

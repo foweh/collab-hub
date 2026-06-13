@@ -466,11 +466,16 @@ function switchModule(moduleName) {
   
   const btn = document.querySelector(`.nav-btn[data-module="${moduleName}"]`);
   const panel = document.getElementById(`panel-${moduleName}`);
+  const nav = document.querySelector('.nav');
+  const toolbar = document.querySelector('.toolbar');
   
   if (btn) btn.classList.add('active');
   if (panel) panel.classList.add('active');
   
   if (moduleName === 'projects') {
+    // 返回项目页面时恢复导航栏和工具栏显示
+    if (nav) nav.style.display = '';
+    if (toolbar) toolbar.style.display = '';
     currentFolderPath = [];
     renderProjects();
   }
@@ -844,9 +849,18 @@ function openProject(p) {
   
   const panel = document.getElementById(`panel-${moduleName}`);
   const btn = document.querySelector(`.nav-btn[data-module="${moduleName}"]`);
+  const nav = document.querySelector('.nav');
+  const toolbar = document.querySelector('.toolbar');
   
   if (panel) panel.classList.add('active');
   if (btn) btn.classList.add('active');
+  
+  // 如果是创作工具，隐藏左侧导航和工具栏
+  const creativeModules = ['script', 'mindmap', 'story', 'storyboard'];
+  if (creativeModules.includes(moduleName)) {
+    if (nav) nav.style.display = 'none';
+    if (toolbar) toolbar.style.display = 'none';
+  }
   
   if (window.CollabStudio.modules[moduleName] && window.CollabStudio.modules[moduleName].openProject) {
     window.CollabStudio.modules[moduleName].openProject(p);

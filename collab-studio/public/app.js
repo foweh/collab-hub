@@ -25,7 +25,6 @@ let serverName = '';
 let projects = [];
 let peers = [];
 let currentFolderPath = [];
-let showCreatePanel = false; // 控制创建按钮是否始终显示
 
 // DOM
 const $ = (s) => document.querySelector(s);
@@ -604,23 +603,7 @@ function renderProjects() {
   if (!showingTrash && currentFolderId) {
     const createButtons = document.createElement('div');
     createButtons.className = 'create-buttons';
-    createButtons.style.position = 'relative';
-    
-    // 添加悬停触发区域
-    const hoverTrigger = document.createElement('div');
-    hoverTrigger.className = 'hover-trigger';
-    hoverTrigger.style.display = showCreatePanel ? 'block' : 'none';
-    createButtons.appendChild(hoverTrigger);
-    
-    const buttonsInner = document.createElement('div');
-    buttonsInner.className = 'create-buttons-inner';
-    buttonsInner.style.display = 'flex';
-    buttonsInner.style.flexWrap = 'wrap';
-    buttonsInner.style.gap = '8px';
-    buttonsInner.style.marginBottom = '16px';
-    buttonsInner.style.paddingBottom = '16px';
-    buttonsInner.style.borderBottom = '1px solid var(--border)';
-    buttonsInner.innerHTML = `
+    createButtons.innerHTML = `
       <button class="create-btn" data-type="script" title="创建剧本">
         <span class="create-icon">📜</span>
         <span class="create-label">剧本</span>
@@ -642,41 +625,7 @@ function renderProjects() {
         <span class="create-label">文件夹</span>
       </button>
     `;
-    
-    // 进入文件夹后默认隐藏，除非开启了始终显示
-    if (!showCreatePanel) {
-      buttonsInner.style.transform = 'translateX(-100%)';
-      buttonsInner.style.opacity = '0';
-      buttonsInner.style.position = 'absolute';
-      buttonsInner.style.left = '0';
-      buttonsInner.style.top = '0';
-      buttonsInner.style.background = 'var(--surface1)';
-      buttonsInner.style.padding = '16px';
-      buttonsInner.style.zIndex = '10';
-      buttonsInner.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-    }
-    
-    createButtons.appendChild(buttonsInner);
     projectList.appendChild(createButtons);
-    
-    // 悬停显示功能
-    hoverTrigger.addEventListener('mouseenter', () => {
-      if (!showCreatePanel) {
-        buttonsInner.style.transform = 'translateX(0)';
-        buttonsInner.style.opacity = '1';
-      }
-    });
-    
-    buttonsInner.addEventListener('mouseleave', () => {
-      if (!showCreatePanel) {
-        setTimeout(() => {
-          if (!buttonsInner.matches(':hover') && !hoverTrigger.matches(':hover')) {
-            buttonsInner.style.transform = 'translateX(-100%)';
-            buttonsInner.style.opacity = '0';
-          }
-        }, 200);
-      }
-    });
 
     createButtons.querySelectorAll('.create-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -940,22 +889,6 @@ function initUI() {
       socket.emit('lan-scan');
     });
   }
-  
-  // 创建创建按钮开关
-  const createToggle = document.createElement('div');
-  createToggle.className = 'create-toggle';
-  createToggle.innerHTML = `
-    <span>创建按钮</span>
-    <div class="toggle-switch${showCreatePanel ? ' active' : ''}"></div>
-  `;
-  document.body.appendChild(createToggle);
-  
-  createToggle.addEventListener('click', () => {
-    showCreatePanel = !showCreatePanel;
-    const switchEl = createToggle.querySelector('.toggle-switch');
-    switchEl.classList.toggle('active');
-    renderProjects();
-  });
   
   renderProjects();
 }

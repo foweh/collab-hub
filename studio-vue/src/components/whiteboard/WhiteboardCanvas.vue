@@ -109,6 +109,18 @@
             <v-line :config="arrowHeadConfig(el)" />
           </v-group>
 
+          <!-- 矢量路径 -->
+          <v-group v-else-if="el.type==='path'" :config="groupConfig(el)" :draggable="isDraggable"
+            @click="select(el.id)" @dragstart="emit('element-drag-start', el.id)" @dragend="emit('element-drag-end', el.id)">
+            <v-line :config="pathLineConfig(el)" />
+          </v-group>
+
+          <!-- 容器组（自动布局） -->
+          <v-group v-else-if="el.type==='group'" :config="groupConfig(el)" :draggable="isDraggable"
+            @click="select(el.id)" @dragstart="emit('element-drag-start', el.id)" @dragend="emit('element-drag-end', el.id)">
+            <v-rect :config="groupBgConfig(el)" />
+          </v-group>
+
           <!-- 思维导图节点 -->
           <v-group v-else-if="el.type==='mindmap-node'" :config="groupConfig(el)" :draggable="isDraggable"
             @click="select(el.id)" @dragstart="emit('element-drag-start', el.id)" @dragend="emit('element-drag-end', el.id)">
@@ -330,6 +342,20 @@ function mindmapDiamondConfig(el: WhiteboardElement) {
 function mindmapTextConfig(el: WhiteboardElement) {
   const attrs = el.attrs as any
   return { x: el.width / 2, y: el.height / 2, text: attrs?.text || '节点', fontSize: 12, fill: '#fff', fontFamily: 'sans-serif', align: 'center', verticalAlign: 'middle' }
+}
+
+function pathLineConfig(el: WhiteboardElement) {
+  const attrs = el.attrs as any
+  const anchors: any[] = attrs?.anchors || []
+  const pts: number[] = []
+  for (const a of anchors) { pts.push(a.x, a.y) }
+  return { points: pts, stroke: el.stroke, strokeWidth: el.strokeWidth, fill: el.fill, closed: attrs?.closed || false, tension: 0.3, lineCap: 'round', lineJoin: 'round' }
+}
+
+function groupBgConfig(el: WhiteboardElement) {
+  const attrs = el.attrs as any
+  const layout = attrs?.layout || {}
+  return { width: el.width, height: el.height, fill: el.fill, stroke: el.stroke, strokeWidth: el.strokeWidth, dash: [4, 4], cornerRadius: 4 }
 }
 
 // ── 连接线 ──

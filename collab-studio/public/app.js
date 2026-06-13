@@ -801,7 +801,7 @@ function renderProjects() {
         <div class="p-owner">${esc(p.owner || '我')}</div>
         ${canChange ? `<div style="margin-top:4px"><select class="vis-select" data-id="${p.id}" style="padding:1px 4px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);outline:none">${visOpts}</select></div>` : `<div style="margin-top:4px;font-size:10px;color:var(--text-dim)">${visIcons[vis]} ${visLabels[vis]}</div>`}
       `;
-      if (isAdmin) {
+      if (canDeleteProject(p)) {
         card.querySelector('.p-del').addEventListener('click', async (e) => {
           e.stopPropagation();
           if (await showConfirm(`删除「${p.name}」？`, '删除确认', '🗑️')) socket.emit('project-delete', p.id);

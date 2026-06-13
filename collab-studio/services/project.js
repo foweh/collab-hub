@@ -59,9 +59,11 @@ function canEditProject(userName, project, auth) {
   return false;
 }
 
-function canDeleteProject(userName, auth) {
+function canDeleteProject(userName, project, auth) {
   if (!userName || !auth.getUser(userName)) return false;
-  return auth.isAdmin(userName);
+  if (auth.isAdmin(userName)) return true;
+  if (project.owner === userName) return true;
+  return false;
 }
 
 function canChangeVisibility(userName, project, auth) {

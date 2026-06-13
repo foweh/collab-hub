@@ -757,7 +757,7 @@ io.on('connection', (socket) => {
     if (!validateEventPayload('project-delete', id).valid) return;
     const p = projects.find(x => x.id === id);
     if (!p) return;
-    if (!projectSvc.canDeleteProject(socket.userName, auth)) {
+    if (!projectSvc.canDeleteProject(socket.userName, p, auth)) {
       socket.emit('project-update-error', '你没有删除此项目的权限');
       return;
     }

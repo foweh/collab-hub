@@ -777,14 +777,21 @@ io.on('connection', (socket) => {
     projectSvc.saveProjects();
   });
   socket.on('project-permanent-delete', (id) => {
-    const p = projects.find(x => x.id === id);
-    if (!p) return;
+    console.log('收到 project-permanent-delete 请求:', id);
+    const idx = projects.findIndex(x => x.id === id);
+    if (idx < 0) {
+      console.log('项目不存在:', id);
+      return;
+    }
+    const p = projects[idx];
     // 允许管理员或项目所有者永久删除
     if (!socket.isAdmin && p.owner !== socket.userName) {
+      console.log('权限不足:', socket.userName, '尝试删除', p.owner, '的项目');
       socket.emit('project-update-error', '你没有永久删除此项目的权限');
       return;
     }
-    projects = projects.filter(x => x.id !== id);
+    projects.splice(idx, 1);
+    console.log('永久删除成功:', id, p.name);
     socket.emit('project-permanently-deleted', id);
     if (p) addLog(socket.id, socket.userName || SERVER_NAME, 'permanently deleted', p.type, p.name);
     broadcastToPeers({ type: 'projects-sync', projects: projects.map(x => ({...x})) }, null);

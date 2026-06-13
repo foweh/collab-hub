@@ -265,6 +265,7 @@ socket.on('project-deleted', (id) => {
 });
 
 socket.on('project-permanently-deleted', (id) => {
+  console.log('收到永久删除响应:', id);
   const idx = projects.findIndex(p => p.id === id);
   if (idx >= 0) projects.splice(idx, 1);
   renderProjects();
@@ -565,15 +566,51 @@ if (newProjectBtn) {
 
 // ─── 回收站切换 ─────────────────────────────────────────
 let showingTrash = false;
+let savedFolderPath = []; // 保存进入回收站前的路径
 
 const trashBtn = document.getElementById('trash-btn');
+const emptyTrashBtn = document.getElementById('empty-trash-btn');
+
 if (trashBtn) {
   trashBtn.addEventListener('click', () => {
     showingTrash = !showingTrash;
     trashBtn.textContent = showingTrash ? '📂' : '🗑️';
     trashBtn.style.borderColor = showingTrash ? 'var(--danger)' : '';
-    document.querySelectorAll('#panel-projects .panel-actions > button').forEach(b => b.style.display = showingTrash ? 'none' : '');
+    
+    // 控制按钮显示/隐藏
+    const newProjectBtn = document.getElementById('new-project-btn');
+    const separator = newProjectBtn ? newProjectBtn.nextElementSibling : null;
+    if (newProjectBtn) newProjectBtn.style.display = showingTrash ? 'none' : '';
+    if (separator && separator.tagName === 'SPAN') separator.style.display = showingTrash ? 'none' : '';
+    if (emptyTrashBtn) emptyTrashBtn.style.display = showingTrash ? '' : 'none';
+    
+    if (showingTrash) {
+      // 进入回收站：保存当前路径，清空路径回到根目录
+      savedFolderPath = [...currentFolderPath];
+      currentFolderPath = [];
+    } else {
+      // 退出回收站：恢复之前的路径
+      currentFolderPath = [...savedFolderPath];
+      savedFolderPath = [];
+    }
+    
     renderProjects();
+  });
+}
+
+// 清空回收站
+if (emptyTrashBtn) {
+  emptyTrashBtn.addEventListener('click', async () => {
+    const deletedProjects = projects.filter(p => p.deleted);
+    if (deletedProjects.length === 0) {
+      showAlert('回收站已经是空的', '提示', 'ℹ️');
+      return;
+    }
+    if (await showConfirm(`确定要永久删除回收站中的 ${deletedProjects.length} 个项目吗？此操作不可撤销！`, '清空回收站确认', '⚠️')) {
+      deletedProjects.forEach(p => {
+        socket.emit('project-permanent-delete', p.id);
+      });
+    }
   });
 }
 
@@ -867,8 +904,16 @@ function renderProjects() {
       });
       card.querySelector('.trash-del-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
+        console.log('永久删除按钮被点击:', p.id, p.name);
         if (await showConfirm('确定要永久删除吗？此操作不可撤销！', '永久删除确认', '⚠️')) {
+          console.log('确认永久删除，发送请求:', p.id);
           socket.emit('project-permanent-delete', p.id);
+          // 直接更新本地状态，不等待服务器响应
+          const idx = projects.findIndex(item => item.id === p.id);
+          if (idx >= 0) projects.splice(idx, 1);
+          renderProjects();
+        } else {
+          console.log('取消永久删除');
         }
       });
       projectList.appendChild(card);

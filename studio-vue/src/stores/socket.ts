@@ -18,6 +18,9 @@ export const useSocketStore = defineStore('socket', () => {
     const s = io(url, {
       query: { userId, userName },
       transports: ['websocket', 'polling'],
+      reconnectionAttempts: 3,
+      reconnectionDelay: 2000,
+      timeout: 5000,
     })
 
     s.on('connect', () => {
@@ -26,6 +29,11 @@ export const useSocketStore = defineStore('socket', () => {
     })
 
     s.on('disconnect', () => {
+      connected.value = false
+    })
+
+    s.on('connect_error', (err) => {
+      console.warn('[socket] connection error:', err.message)
       connected.value = false
     })
 

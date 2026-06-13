@@ -79,12 +79,8 @@ function connect() {
   connected.value = true
 }
 
-// 尝试自动连接
-const savedName = localStorage.getItem('studio-user-name')
-if (savedName) {
-  userName.value = savedName
-  connect()
-}
+// 不自动连接——用户点击"连接"按钮才连
+// 之前自动连接逻辑已移除，防止连接风暴
 </script>
 
 <style scoped>

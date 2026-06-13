@@ -13,15 +13,8 @@ const socketStore = useSocketStore()
 const userId = ref(socketStore.myUserId || localStorage.getItem('studio-user-id') || 'unknown')
 const userName = ref(socketStore.myUserName || localStorage.getItem('studio-user-name') || '匿名')
 
-// 如果还没连接，自动尝试
-if (!socketStore.connected) {
-  const savedId = localStorage.getItem('studio-user-id')
-  const savedName = localStorage.getItem('studio-user-name')
-  if (savedId && savedName) {
-    const wsUrl = `http://${window.location.hostname}:3000`
-    socketStore.connect(wsUrl, savedId, savedName)
-  }
-}
+// 不自动连接——用户需要先点击首页"连接"按钮
+// if (!socketStore.connected) { ... } 已移除
 </script>
 
 <style scoped>

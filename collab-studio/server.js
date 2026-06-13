@@ -628,6 +628,7 @@ io.on('connection', (socket) => {
     addLog(socket.id, socket.userName, 'removed item', p.type, p.name);
   });
   socket.on('project-create-batch', (data) => {
+    if (!socket.userName) return;
     const { name, children } = data;
     if (!name) return;
     const folder = { id: uuid().slice(0, 12), type: 'folder', name, data: { children: [] }, createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME };

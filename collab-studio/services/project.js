@@ -20,6 +20,7 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'storyboard': return { items: [] };
     case 'folder': return { children: [] };
     case 'project': return { items: [] };
     default: return {};
@@ -52,7 +53,7 @@ function saveProjects() {
 function canEditProject(userName, project, auth) {
   if (!userName || !auth.getUser(userName)) return false;
   if (auth.isAdmin(userName)) return true;
-  if (project.owner === userName) return auth.canEdit(userName);
+  if (project.owner === userName) return true;
   if (project.visibility === 'public-edit') return auth.canEdit(userName);
   if (project.visibility === 'public-read') return false;
   return false;

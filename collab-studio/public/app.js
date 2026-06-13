@@ -450,7 +450,9 @@ function getDefaultData(type) {
     case 'script': return { acts: [] };
     case 'mindmap': return { nodes: [], edges: [] };
     case 'story': return { chapters: [] };
+    case 'storyboard': return { items: [] };
     case 'folder': return { children: [] };
+    case 'project': return { items: [] };
     default: return {};
   }
 }
@@ -514,11 +516,6 @@ $('#new-project-btn').addEventListener('click', () => {
     icon: '📂', title: '新建项目', hint: '创建一个空白项目，可在项目中添加剧本、导图、故事等。',
     placeholder: '输入项目名称...', defaultName: '新项目',
     callback: (name) => {
-      // 检查名称重复
-      if (projects.some(p => p.name === name && !p.deleted)) {
-        showAlert('项目名称已存在，请换一个', '提示', '⚠️');
-        return;
-      }
       socket.emit('project-create', { type: 'project', name, data: { items: [] } });
     },
   });

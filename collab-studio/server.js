@@ -231,6 +231,13 @@ app.get('/studio/*', (req, res) => {
   res.sendFile(path.join(STUDIO_VUE_DIST, 'index.html'));
 });
 
+// ─── 分镜工具（fenjing-local） ──────────────────────────
+const FENJING_LOCAL_DIST = path.join(__dirname, '..', 'fenjing-local', 'dist');
+app.use('/storyboard', express.static(FENJING_LOCAL_DIST));
+app.get('/storyboard/*', (req, res) => {
+  res.sendFile(path.join(FENJING_LOCAL_DIST, 'index.html'));
+});
+
 // ─── UDP 发现 ────────────────────────────────────────────
 let broadcastDiscover = () => {};
 if (!JOIN_TARGET) {

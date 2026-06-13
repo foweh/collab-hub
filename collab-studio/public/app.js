@@ -514,6 +514,56 @@ createInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeCreateModal();
 });
 
+// ─── 新建文件夹按钮 ──────────────────────────────────────
+$('#new-project-btn').addEventListener('click', () => {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-mask';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:360px;">
+      <h3 style="margin-bottom:16px">📁 新建文件夹</h3>
+      <div style="margin-bottom:16px">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">文件夹名称</label>
+        <input type="text" id="new-folder-name" class="modal-input" style="width:100%" placeholder="输入文件夹名称..." autofocus>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px">
+          💡 提示：同类型项目名称不能重复
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" id="folder-cancel">取消</button>
+        <button class="btn btn-primary" id="folder-confirm" disabled>创建</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const nameInput = overlay.querySelector('#new-folder-name');
+  const confirmBtn = overlay.querySelector('#folder-confirm');
+
+  nameInput.addEventListener('input', () => {
+    confirmBtn.disabled = !nameInput.value.trim();
+  });
+
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && nameInput.value.trim()) {
+      confirmBtn.click();
+    } else if (e.key === 'Escape') {
+      overlay.remove();
+    }
+  });
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  overlay.querySelector('#folder-cancel').addEventListener('click', () => overlay.remove());
+
+  confirmBtn.addEventListener('click', () => {
+    const folderName = nameInput.value.trim() || '新建文件夹';
+    overlay.remove();
+    createDefaultProject('project', folderName);
+  });
+});
+
 // ─── 项目详情按钮 ──────────────────────────────────────
 function pdAddItem(type) {
   if (!currentDetailProject) return;

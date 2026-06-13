@@ -560,7 +560,8 @@ $('#new-project-btn').addEventListener('click', () => {
   confirmBtn.addEventListener('click', () => {
     const folderName = nameInput.value.trim() || '新建文件夹';
     overlay.remove();
-    createDefaultProject('project', folderName);
+    // 创建真正的文件夹类型，包含 children 属性
+    socket.emit('project-create', { type: 'folder', name: folderName, data: { children: [] } });
   });
 });
 

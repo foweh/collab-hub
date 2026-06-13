@@ -113,6 +113,10 @@
         <div class="login-field">
           <label class="login-label">用户名</label>
           <input type="text" id="login-name" class="login-input" placeholder="输入用户名..." maxlength="20" autofocus />
+          <div id="login-name-history" style="margin-top:6px;display:none;">
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">历史用户名:</div>
+            <div id="login-name-list" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+          </div>
         </div>
         <div class="login-field">
           <label class="login-label">密码</label>
@@ -228,6 +232,14 @@
     function doLogin() {
       const name = loginName.value.trim();
       if (!name) { showError('请输入用户名'); return; }
+      
+      // 安全检测
+      const attackResult = detectMemoryAttack(name);
+      if (attackResult) {
+        showError(attackResult);
+        return;
+      }
+      
       if (!connected) { showError('尚未连接到服务器，请等待...'); return; }
       loginBtn.disabled = true;
       loginBtn.textContent = '登录中...';
@@ -263,6 +275,84 @@
       } catch(_) {}
     }
 
+    // 用户名历史记录功能
+    function loadUserNameHistory() {
+      try {
+        const history = localStorage.getItem('collab-user-names');
+        if (history) {
+          const names = JSON.parse(history);
+          if (Array.isArray(names) && names.length > 0) {
+            const historyDiv = document.getElementById('login-name-history');
+            const listDiv = document.getElementById('login-name-list');
+            listDiv.innerHTML = '';
+            names.forEach(name => {
+              const btn = document.createElement('button');
+              btn.style.cssText = 'padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--text);font-size:12px;cursor:pointer;transition:all 0.1s';
+              btn.textContent = name;
+              btn.addEventListener('click', () => {
+                loginName.value = name;
+                loginPwd.focus();
+              });
+              listDiv.appendChild(btn);
+            });
+            historyDiv.style.display = 'block';
+          }
+        }
+      } catch(e) {
+        console.warn('[login] Failed to load user name history:', e);
+      }
+    }
+
+    function saveUserNameToHistory(name) {
+      try {
+        const history = localStorage.getItem('collab-user-names');
+        const names = history ? JSON.parse(history) : [];
+        if (!names.includes(name)) {
+          names.unshift(name);
+          // 最多保存10个历史用户名
+          if (names.length > 10) {
+            names.pop();
+          }
+          localStorage.setItem('collab-user-names', JSON.stringify(names));
+        }
+        loadUserNameHistory();
+      } catch(e) {
+        console.warn('[login] Failed to save user name:', e);
+      }
+    }
+
+    // 安全检测：防止内存漏洞攻击
+    function detectMemoryAttack(input) {
+      if (!input) return null;
+      
+      // 检测超长字符串攻击
+      if (input.length > 100) {
+        return '用户名过长，可能存在攻击';
+      }
+      
+      // 检测重复字符攻击（如 "aaaaaaaaa..."）
+      const repeatPattern = /^(.)\1{20,}$/;
+      if (repeatPattern.test(input)) {
+        return '用户名存在异常模式，可能存在攻击';
+      }
+      
+      // 检测特殊字符数量
+      const specialChars = input.match(/[<>{}[\]|\\`~!@#$%^&*()+=;:'"]/g);
+      if (specialChars && specialChars.length > 10) {
+        return '用户名包含过多特殊字符，可能存在攻击';
+      }
+      
+      // 检测Unicode炸弹（如 Emoji 炸弹）
+      const emojiCount = input.match(/[\u{1F300}-\u{1F6FF}\u{2600}-\u{26FF}]/gu);
+      if (emojiCount && emojiCount.length > 5) {
+        return '用户名包含过多表情符号，可能存在攻击';
+      }
+      
+      return null;
+    }
+
+    loadUserNameHistory();
+
     socket.on('login-success', ({ userName, isAdmin, hasPassword, role, token }) => {
       // 保存登录凭证到 sessionStorage（会话级，关闭标签即清除）
       sessionStorage.setItem('collab-auth', JSON.stringify({
@@ -273,6 +363,8 @@
       }));
       // 保存用户名到 localStorage 以便下次自动填入
       localStorage.setItem('collab-user-name', userName);
+      // 保存用户名到历史记录
+      saveUserNameToHistory(userName);
       // 跳转到主应用
       window.location.href = '/app';
     });

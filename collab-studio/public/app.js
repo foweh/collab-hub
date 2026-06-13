@@ -523,9 +523,9 @@ if (newProjectBtn) {
     console.log('新建文件夹按钮被点击');
     
     const overlay = document.createElement('div');
-    overlay.className = 'modal-mask';
+    overlay.className = 'modal-overlay';  // 修复：使用正确的类名
     overlay.innerHTML = `
-      <div class="modal" style="max-width:360px;">
+      <div class="modal-card" style="max-width:360px;">
         <h3 style="margin-bottom:16px">📁 新建文件夹</h3>
         <div style="margin-bottom:16px">
           <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">文件夹名称</label>

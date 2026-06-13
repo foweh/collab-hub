@@ -1235,6 +1235,41 @@ fenjingNsp.on('connection', (socket) => {
     saveFenjingState(fenjingState);
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
+  // 加载项目分镜数据
+  socket.on('fenjing:load-item', ({ itemId, projectId }) => {
+    let targetItem = null;
+    let targetProject = null;
+    if (projectId) {
+      targetProject = projects.find(p => p.id === projectId);
+      if (targetProject && targetProject.data.items) {
+        targetItem = targetProject.data.items.find(it => it.id === itemId);
+      }
+    }
+    if (targetItem && targetItem.type === 'storyboard') {
+      fenjingState = JSON.parse(JSON.stringify(targetItem.data || { projectName: targetItem.name, scenes: [], shots: [] }));
+      fenjingState.projectName = fenjingState.projectName || targetItem.name;
+    } else {
+      fenjingState = { projectName: '未命名项目', scenes: [], shots: [] };
+    }
+    fenjingNsp.emit('fenjing:state-sync', fenjingState);
+  });
+  // 保存分镜数据到项目
+  socket.on('fenjing:save-item', ({ itemId, projectId }) => {
+    let targetProject = null;
+    let targetItem = null;
+    if (projectId) {
+      targetProject = projects.find(p => p.id === projectId);
+      if (targetProject && targetProject.data.items) {
+        targetItem = targetProject.data.items.find(it => it.id === itemId);
+      }
+    }
+    if (targetItem && targetProject) {
+      targetItem.data = { projectName: fenjingState.projectName, scenes: fenjingState.scenes, shots: fenjingState.shots };
+      targetProject.updatedAt = Date.now();
+      projectSvc.saveProjects();
+      io.emit('project-item-added', { projectId, item: targetItem });
+    }
+  });
 });
 
 // ─── 主动连接对方（UDP 发现后调用） ────────────────────

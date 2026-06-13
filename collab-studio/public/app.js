@@ -12,6 +12,7 @@ window.CollabStudio = {
 
 const socket = io();
 CollabStudio.socket = socket;
+const fenjingSocket = io('/fenjing');  // 分镜namespace连接
 
 // 持久身份 ID（localStorage，跨会话不变）
 let myUserId = localStorage.getItem('collab-user-id');
@@ -50,6 +51,9 @@ const receiveInfo     = $('#receive-info');
 const receiveList     = $('#receive-list');
 const receiveOk       = $('#receive-ok');
 let onlineUsers = [];
+
+// 分镜当前编辑的项目上下文
+let currentStoryboardCtx = null;  // { itemId, projectId }
 
 // ─── 扫描状态 ────────────────────────────────────────────
 let scanState = 'idle';
@@ -510,14 +514,82 @@ createInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeCreateModal();
 });
 
-// 新建项目按钮
+// 新建项目按钮 - 支持选择类型
 $('#new-project-btn').addEventListener('click', () => {
-  showCreateModal({
-    icon: '📂', title: '新建项目', hint: '创建一个空白项目，可在项目中添加剧本、导图、故事等。',
-    placeholder: '输入项目名称...', defaultName: '新项目',
-    callback: (name) => {
-      socket.emit('project-create', { type: 'project', name, data: { items: [] } });
-    },
+  // 类型选择弹窗
+  const types = [
+    { type: 'project', icon: '📂', label: '项目', hint: '容器项目，可包含多种内容' },
+    { type: 'script', icon: '📜', label: '剧本', hint: '剧本写作' },
+    { type: 'mindmap', icon: '🧠', label: '导图', hint: '思维导图' },
+    { type: 'story', icon: '📖', label: '故事', hint: '故事创作' },
+    { type: 'storyboard', icon: '🎬', label: '分镜', hint: '分镜工具' },
+  ];
+  const buttonsHtml = types.map(t =>
+    `<button class="type-btn" data-type="${t.type}">${t.icon} ${t.label}<span class="type-hint">${t.hint}</span></button>`
+  ).join('');
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-mask';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <h3 style="margin-bottom:12px">选择项目类型</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px">
+        ${buttonsHtml}
+      </div>
+      <div id="type-project-name" style="display:none;margin-bottom:16px">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary)">项目名称</label>
+        <input type="text" id="new-project-name-input" class="modal-input" placeholder="输入项目名称..." style="width:100%">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn" id="type-select-cancel">取消</button>
+        <button class="btn btn-primary" id="type-select-confirm" disabled>创建</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  
+  let selectedType = null;
+  const nameInput = overlay.querySelector('#new-project-name-input');
+  const confirmBtn = overlay.querySelector('#type-select-confirm');
+  const nameSection = overlay.querySelector('#type-project-name');
+  
+  overlay.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedType = btn.dataset.type;
+      overlay.querySelectorAll('.type-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      if (selectedType === 'project') {
+        nameSection.style.display = 'block';
+        nameInput.focus();
+      } else {
+        nameSection.style.display = 'none';
+        confirmBtn.disabled = false;
+      }
+    });
+  });
+  
+  nameInput.addEventListener('input', () => {
+    confirmBtn.disabled = !nameInput.value.trim();
+  });
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && nameInput.value.trim()) confirmBtn.click();
+    if (e.key === 'Escape') overlay.remove();
+  });
+  
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  overlay.querySelector('#type-select-cancel').addEventListener('click', () => overlay.remove());
+  confirmBtn.addEventListener('click', () => {
+    if (!selectedType) return;
+    if (selectedType === 'project') {
+      const name = nameInput.value.trim() || '新项目';
+      overlay.remove();
+      createDefaultProject('project', name);
+    } else {
+      overlay.remove();
+      createDefaultProject(selectedType, '新' + {script:'剧本',mindmap:'导图',story:'故事',storyboard:'分镜'}[selectedType]);
+    }
   });
 });
 
@@ -779,14 +851,18 @@ function openProjectItem(project, item) {
   if (panel) {
     panel.classList.add('active');
     if (item.type === 'storyboard') {
-      // 分镜特殊处理
+      // 分镜特殊处理：加载项目数据
       document.getElementById('nav-storyboard').classList.add('active');
+      currentStoryboardCtx = { itemId: item.id, projectId: project.id };
+      fenjingSocket.emit('fenjing:load-item', { itemId: item.id, projectId: project.id });
       const frame = document.querySelector('#storyboard-frame iframe');
       if (frame) {
         const src = frame.src;
         frame.src = '';
         setTimeout(() => { frame.src = src; }, 50);
       }
+    } else {
+      currentStoryboardCtx = null;
     }
   }
   // 把 item 包装成编辑器可识别的格式
@@ -1194,6 +1270,11 @@ document.getElementById('log-clear-btn').addEventListener('click', () => {
 // ─── 返回项目列表 ────────────────────────────────────────
 document.querySelectorAll('#script-back, #mindmap-back, #story-back, #sb-back, #admin-back, #pd-back').forEach(btn => {
   btn.addEventListener('click', () => {
+    // 如果是从分镜面板返回，保存分镜数据
+    if (currentStoryboardCtx) {
+      fenjingSocket.emit('fenjing:save-item', currentStoryboardCtx);
+      currentStoryboardCtx = null;
+    }
     navBtns.forEach(b => b.classList.remove('active'));
     panels.forEach(p => p.classList.remove('active'));
     document.querySelector('.nav-btn[data-module="projects"]').classList.add('active');

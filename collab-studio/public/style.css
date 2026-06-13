@@ -1242,3 +1242,23 @@ mark.ann-highlight:hover { background: rgba(255, 202, 40, 0.4); }
 mark.ann-highlight.resolved { background: rgba(102, 187, 106, 0.2); border-bottom-color: #66bb6a; }
 mark.ann-highlight.rejected { background: rgba(239, 83, 80, 0.15); border-bottom-color: #ef5350; }
 
+/* ─── 新建项目类型选择 ─── */
+.type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+  transition: all 0.15s;
+}
+.type-btn:hover { background: var(--surface3); border-color: var(--accent); }
+.type-btn.selected { background: var(--surface3); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.type-btn .type-hint { font-size: 11px; color: var(--text-dim); }
+.type-btn.selected .type-hint { color: var(--accent); }
+

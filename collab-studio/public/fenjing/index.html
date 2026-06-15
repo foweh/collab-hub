@@ -238,6 +238,7 @@
           ctx.globalCompositeOperation = 'source-over';
           // Draw shape preview
           drawShape(shapeTool, startX, startY, p.x, p.y, false);
+          lastX = p.x; lastY = p.y;
           return;
         }
 
@@ -252,13 +253,11 @@
         isDrawing = false;
         getCtxProps();
         if (shapeTool) {
-          const p = { x: lastX, y: lastY };
-          const endP = { x: lastX, y: lastY };
           // Redraw from offscreen (clean state before preview)
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0);
-          // Draw final shape
-          drawShape(shapeTool, startX, startY, endP.x, endP.y, true);
+          // Draw final shape from start to last mouse position
+          drawShape(shapeTool, startX, startY, lastX, lastY, true);
           // Update offscreen with final result
           const tmp = document.createElement('canvas');
           tmp.width = canvas.width; tmp.height = canvas.height;

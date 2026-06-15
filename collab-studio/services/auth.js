@@ -129,10 +129,18 @@ function getOrCreateUser(name, password) {
     users[name] = {
       passwordHash: password ? hashPwdSync(password) : '',
       isAdmin: false, fingerprint: '', isBanned: false,
-      role: 'editor'
+      role: 'editor',
+      lastSeen: 0
     };
   }
   return users[name];
+}
+
+function updateLastSeen(name) {
+  if (users[name]) {
+    users[name].lastSeen = Date.now();
+    saveUsers();
+  }
 }
 
 function updateUser(name, updates) {
@@ -193,6 +201,7 @@ module.exports = {
   getUser,
   getUsers,
   getOrCreateUser,
+  updateLastSeen,
   updateUser,
   setUserFingerprint,
   isNameBanned,

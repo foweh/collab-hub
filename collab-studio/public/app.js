@@ -170,6 +170,65 @@ function updateUIBasedOnRole() {
   }
 }
 
+// ─── 管理员用户列表 ─────────────────────────────────
+socket.on('admin-users-list', (users) => {
+  const tbody = document.getElementById('admin-users-tbody');
+  if (!tbody) return;
+  const onlineNames = new Set();
+  // 从当前的 online-users 事件构建在线集合（通过 DOM 中的 badge 信息）
+  tbody.innerHTML = users.map(u => {
+    const isOnline = u.online;
+    const roleLabel = u.isAdmin ? '管理员' : (u.role === 'editor' ? '编辑者' : (u.role === 'commenter' ? '评论者' : '观察者'));
+    const statusHtml = isOnline
+      ? '<span style="color:#22c55e">● 在线</span>'
+      : '<span style="color:#94a3b8">○ 离线</span>';
+    let lastSeenText = '从未上线';
+    if (u.lastSeen && u.lastSeen > 0) {
+      const diff = Date.now() - u.lastSeen;
+      if (diff < 60000) lastSeenText = '刚刚';
+      else if (diff < 3600000) lastSeenText = Math.floor(diff / 60000) + ' 分钟前';
+      else if (diff < 86400000) lastSeenText = Math.floor(diff / 3600000) + ' 小时前';
+      else if (diff < 604800000) lastSeenText = Math.floor(diff / 86400000) + ' 天前';
+      else lastSeenText = Math.floor(diff / 604800000) + ' 周前';
+    }
+    const fingerprintShort = u.fingerprint ? u.fingerprint.slice(0, 12) + '...' : '-';
+    return `<tr>
+      <td><strong>${esc(u.name)}</strong>${u.isAdmin ? ' 👑' : ''}</td>
+      <td>${statusHtml}</td>
+      <td style="font-size:11px;color:var(--text-dim)">${u.lastSeen ? lastSeenText : '从未上线'}</td>
+      <td>${roleLabel}</td>
+      <td style="font-size:10px;color:var(--text-dim)">${fingerprintShort}</td>
+      <td>${u.hasPassword ? '<button class="tool-btn" onclick="changeUserPwd(\'' + esc(u.name) + '\')">改密</button>' : '<span style="color:var(--text-dim)">无密码</span>'}</td>
+      <td>${u.isBanned
+        ? '<button class="tool-btn" onclick="unbanUser(\'' + esc(u.name) + '\')">解封</button>'
+        : (u.name !== myName ? '<button class="tool-btn danger" onclick="banUser(\'' + esc(u.name) + '\')">封禁</button>' : '-')
+      }</td>
+    </tr>`;
+  }).join('');
+});
+
+function changeUserPwd(name) {
+  const pwd = prompt('输入新密码给用户: ' + name);
+  if (pwd && pwd.length >= 3) {
+    socket.emit('admin-change-password', { targetName: name, newPassword: pwd });
+    showToast('✅ 密码已修改');
+  }
+}
+
+function banUser(name) {
+  if (confirm('确定封禁用户 ' + name + '？')) {
+    socket.emit('admin-ban-user', { targetName: name });
+    showToast('🔨 用户 ' + name + ' 已封禁');
+  }
+}
+
+function unbanUser(name) {
+  if (confirm('确定解封用户 ' + name + '？')) {
+    socket.emit('admin-unban-user', { targetName: name });
+    showToast('✅ 用户 ' + name + ' 已解封');
+  }
+}
+
 const myFingerprint = window.CollabStudioFingerprint ? window.CollabStudioFingerprint() : '';
 
 // ─── 入场 ────────────────────────────────────────────────
@@ -511,6 +570,11 @@ function switchModule(moduleName) {
     if (toolbar) toolbar.style.display = '';
     currentFolderPath = [];
     renderProjects();
+  }
+  if (moduleName === 'admin') {
+    socket.emit('admin-list-users');
+    socket.emit('admin-get-stats');
+    socket.emit('admin-list-resets');
   }
 }
 

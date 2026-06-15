@@ -515,6 +515,7 @@ io.on('connection', (socket) => {
         console.log(`[login] 成功: token 验证通过 用户="${userName}"`);
         socket.userName = userName;
         socket.isAdmin = users[userName]?.isAdmin || false;
+        authSvc.updateLastSeen(userName);
         onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin: socket.isAdmin, fingerprint: fingerprint || '' });
         broadcastOnlineUsers();
         addLog(socket.id, userName, 'reconnected', 'system', '');
@@ -579,6 +580,7 @@ io.on('connection', (socket) => {
 
     socket.isAdmin = isAdmin;
     onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin, fingerprint: fingerprint || '' });
+    authSvc.updateLastSeen(userName);
     broadcastOnlineUsers();
     addLog(socket.id, userName, 'joined', 'system', '');
     socket.emit('login-success', { userName, isAdmin, hasPassword: !!users[userName]?.passwordHash, token: auth.generateSessionToken(userName) });
@@ -859,10 +861,14 @@ io.on('connection', (socket) => {
   // ── 管理操作 ──
   socket.on('admin-list-users', () => {
     if (!socket.isAdmin) return;
+    const onlineNames = new Set();
+    for (const [, u] of onlineUsers) onlineNames.add(u.name);
     const list = Object.entries(users).map(([name, u]) => ({
       name, isAdmin: u.isAdmin, hasPassword: !!u.passwordHash,
       isBanned: u.isBanned, fingerprint: u.fingerprint || '',
       role: u.isAdmin ? 'editor' : (u.role || 'commenter'),
+      online: onlineNames.has(name),
+      lastSeen: u.lastSeen || 0,
     }));
     socket.emit('admin-users-list', list);
   });
@@ -1195,6 +1201,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    if (socket.userName) authSvc.updateLastSeen(socket.userName);
     onlineUsers.delete(socket.id);
     broadcastOnlineUsers();
     broadcastToPeers({ type: 'focus-release-all', user: socket.userName || SERVER_NAME }, null);

@@ -502,45 +502,8 @@ function renderOnlineUsers() {
   if (countEl) countEl.textContent = '(' + onlineUsers.length + ')';
   const headerCount = document.getElementById('online-count-header');
   if (headerCount) headerCount.textContent = onlineUsers.length;
-  // 同时刷新头像叠放
-  renderCollabAvatars();
 }
 
-// ─── 协作者头像叠放 ───────────────────────────────────
-function renderCollabAvatars() {
-  // 找到当前活动面板中的 avatar 容器
-  const container = document.querySelector('.module-panel.active [data-avatar-container]');
-  if (!container) return;
-  // 只在打开具体项目时显示（不在项目列表/消息/设备/日志面板显示）
-  const activePanel = document.querySelector('.module-panel.active');
-  const editorPanels = ['panel-script', 'panel-mindmap', 'panel-story', 'panel-storyboard', 'panel-admin', 'panel-project-detail'];
-  const isEditorOpen = activePanel && editorPanels.some(id => activePanel.id === id);
-  if (!isEditorOpen || !onlineUsers.length) {
-    container.style.display = 'none';
-    return;
-  }
-  container.style.display = 'flex';
-  container.innerHTML = '';
-  const maxShow = 3;
-  const showUsers = onlineUsers.slice(0, maxShow);
-  const remainder = onlineUsers.length - maxShow;
-  showUsers.forEach(u => {
-    const el = document.createElement('div');
-    el.className = 'collab-avatar online';
-    el.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface2)';
-    el.innerHTML = `<span class="collab-tooltip">${esc(u.name)}</span>${esc(u.name.charAt(0).toUpperCase())}`;
-    container.appendChild(el);
-  });
-  if (remainder > 0) {
-    const el = document.createElement('div');
-    el.className = 'collab-avatar-text';
-    el.style.position = 'relative';
-    el.innerHTML = `<span class="collab-tooltip">还有 ${remainder} 人</span>+${remainder}`;
-    container.appendChild(el);
-  }
-}
-
-// ─── 设备列表 ───────────────────────────────────────────
 function updatePeersUI() {
   peerStatusArea.innerHTML = '';
   
@@ -788,7 +751,6 @@ if (emptyTrashBtn) {
 // ─── 项目渲染 ───────────────────────────────────────────
 function renderProjects() {
   projectList.innerHTML = '';
-  renderCollabAvatars();
 
   const currentFolderId = currentFolderPath.length > 0 
     ? currentFolderPath[currentFolderPath.length - 1].id 

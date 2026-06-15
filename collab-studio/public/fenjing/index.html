@@ -755,113 +755,6 @@
         });
       }
 
-      // ── 自定义导出 ───────────────────────────────────────
-      function exportJSON() {
-        const data = {
-          project: document.querySelector('.project-name')?.textContent || '未命名',
-          scenes: localScenes,
-          shots: localShots.map(s => ({
-            ...s,
-            image: s.image && typeof s.image === 'string' ? s.image : null
-          }))
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = '分镜数据.json';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-
-      function exportCSV() {
-        const esc = v => {
-          const s = String(v ?? '');
-          return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
-        };
-        const headers = ['镜号', '景别', '时长(秒)', '内容', '备注', '参考', '场景预期', '声音', '摄像机角度', '画面'];
-        const rows = localShots
-          .sort((a, b) => (a.order || 0) - (b.order || 0))
-          .map(s => [
-            s.number, s.frame, s.duration,
-            esc(s.content), esc(s.notes), esc(s.reference),
-            esc(s.sceneExpect), esc(s.sound), esc(s.camera),
-            s.image && typeof s.image === 'string' ? esc(s.image) : ''
-          ].join(','));
-        const csv = '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = '分镜数据.csv';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-
-      // 覆盖导出按钮
-      function overrideExportButtons() {
-        // 添加"导出 Excel"按钮
-        const exportDrop = document.querySelector('.export-drop');
-        if (exportDrop && !exportDrop.querySelector('[data-export="excel"]')) {
-          const btn = document.createElement('button');
-          btn.dataset.export = 'excel';
-          btn.textContent = '导出 Excel';
-          btn.addEventListener('click', (e) => { e.stopPropagation(); exportExcel(); });
-          exportDrop.appendChild(btn);
-        }
-        // 覆盖 JSON/CSV 按钮
-        document.querySelectorAll('.export-drop button:not([data-export="excel"])').forEach(btn => {
-          if (btn.dataset.exportOverridden) return;
-          const text = btn.textContent.trim();
-          if (text === '导出 JSON' || text === '导出 CSV') {
-            btn.dataset.exportOverridden = '1';
-            btn.addEventListener('click', (e) => {
-              e.stopImmediatePropagation();
-              if (text === '导出 JSON') exportJSON();
-              else exportCSV();
-            }, true);
-          }
-        });
-      }
-
-      // ── Excel 导出（HTML 表格格式，支持嵌入图片） ──
-      function exportExcel() {
-        const headers = ['镜号', '景别', '时长(秒)', '内容', '备注', '参考', '场景预期', '声音', '摄像机角度', '画面'];
-        const rows = [...localShots].sort((a, b) => (a.order || 0) - (b.order || 0));
-
-        let html = '<html><meta charset="utf-8"><body><table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:12px">';
-        html += '<tr bgcolor="#f0f0f0">' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr>';
-
-        rows.forEach(s => {
-          const img = s.image && typeof s.image === 'string' && s.image.startsWith('data:')
-            ? '<img src="' + s.image + '" width="120" height="68" style="object-fit:cover">'
-            : '';
-          html += '<tr>'
-            + '<td align="center">' + (s.number ?? '') + '</td>'
-            + '<td align="center">' + escHtml(s.frame) + '</td>'
-            + '<td align="center">' + (s.duration ?? '') + '</td>'
-            + '<td>' + escHtml(s.content) + '</td>'
-            + '<td>' + escHtml(s.notes) + '</td>'
-            + '<td>' + escHtml(s.reference) + '</td>'
-            + '<td>' + escHtml(s.sceneExpect) + '</td>'
-            + '<td>' + escHtml(s.sound) + '</td>'
-            + '<td>' + escHtml(s.camera) + '</td>'
-            + '<td align="center">' + img + '</td>'
-            + '</tr>';
-        });
-
-        html += '</table></body></html>';
-        const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = '分镜数据.xls';
-        a.click();
-        URL.revokeObjectURL(a.href);
-      }
-
-      function escHtml(v) {
-        return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      }
-
-      // ── 修复转圈 + 添加 Excel 导出按钮 ──
       function fixSpinners() {
         document.querySelectorAll('.img-cell .img-loading').forEach(el => {
           const cell = el.closest('.img-cell');
@@ -894,15 +787,13 @@
         });
       }
 
-      // 覆盖 MutationObserver（等 Vue 渲染完成后覆盖导出按钮 + 修复转圈）
+      // 修复转圈（等 Vue 渲染完成后）
       setTimeout(() => {
         const obs = new MutationObserver(() => {
-          overrideExportButtons();
           fixSpinners();
         });
         const appEl = document.getElementById('app');
         if (appEl) obs.observe(appEl, { childList: true, subtree: true });
-        overrideExportButtons();
         fixSpinners();
       }, 2000);
 

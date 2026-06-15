@@ -550,6 +550,13 @@ io.on('connection', (socket) => {
       socket.disconnect();
       return;
     }
+    // 指纹级别限制：每分钟3次（比IP更严格，指纹是设备唯一标识）
+    if (!isAdminUser && fingerprint && !checkRateLimit(`loginFp:${fingerprint}`, 3, 60000)) {
+      console.log(`[login] 失败: 指纹登录频繁 fingerprint=${fingerprint.slice(0, 12)}...`);
+      socket.emit('login-error', '登录尝试过于频繁，请稍后再试');
+      socket.disconnect();
+      return;
+    }
 
     // 如果携带 token，优先验证 token
     if (token) {

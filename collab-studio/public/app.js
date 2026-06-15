@@ -885,7 +885,7 @@ function renderProjects() {
     });
 
     items.forEach(p => {
-      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁', project: '📄' };
+      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁', project: '🎬' };
       const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹', project: '项目' };
       const vis = p.visibility || 'private';
       const canChange = isAdmin || p.owner === myName;
@@ -926,7 +926,7 @@ function renderProjects() {
   } else {
     visibleProjects.sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
     visibleProjects.forEach(p => {
-      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁', project: '📄' };
+      const icons = { script: '📜', mindmap: '🧠', story: '📖', folder: '📁', project: '🎬' };
       const names = { script: '剧本', mindmap: '思维导图', story: '故事', folder: '文件夹', project: '项目' };
       const card = document.createElement('div');
       card.className = 'project-card trash';

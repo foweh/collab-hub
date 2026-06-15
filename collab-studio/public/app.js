@@ -1143,7 +1143,7 @@ function renderProjects() {
       ).join('');
       const card = document.createElement('div');
       card.className = 'project-card folder';
-      const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
+      const childCount = projects.filter(p => !p.deleted && p.parentId === f.id).length;
       card.innerHTML = `
         <span class="p-type">📁</span>
         <button class="p-del" data-id="${f.id}">×</button>

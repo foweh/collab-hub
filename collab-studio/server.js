@@ -939,6 +939,39 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── 消息权限申请 ──
+  const msgPermissionRequests = [];
+  socket.on('admin-request-msg-permission', ({ targetName }) => {
+    const req = { from: socket.userName, target: targetName, time: Date.now() };
+    msgPermissionRequests.push(req);
+    addLog(socket.id, socket.userName, 'request msg permission', 'system', `→ ${targetName}`);
+    // 通知所有管理员
+    for (const [sid, u] of onlineUsers) {
+      if (u.isAdmin) io.to(sid).emit('admin-msg-permission-request', req);
+    }
+    socket.emit('request-sent', '消息权限申请已发送给管理员');
+  });
+  socket.on('admin-list-msg-requests', () => {
+    if (!socket.isAdmin) return;
+    socket.emit('admin-msg-requests-list', msgPermissionRequests);
+  });
+  socket.on('admin-approve-msg-permission', ({ from, approve }) => {
+    if (!socket.isAdmin) return;
+    const idx = msgPermissionRequests.findIndex(r => r.from === from);
+    if (idx >= 0) msgPermissionRequests.splice(idx, 1);
+    // 通知申请者
+    for (const [sid, u] of onlineUsers) {
+      if (u.name === from) {
+        if (approve) {
+          io.to(sid).emit('msg-permission-granted', { adminName: socket.userName });
+        } else {
+          io.to(sid).emit('msg-permission-denied', { adminName: socket.userName });
+        }
+      }
+    }
+    addLog(socket.id, socket.userName, 'msg permission', 'system', `${from} → ${approve ? '批准' : '拒绝'}`);
+  });
+
   // ── 角色查询 ──
   socket.on('admin-get-roles', () => {
     if (!socket.isAdmin) return;

@@ -170,7 +170,122 @@ function updateUIBasedOnRole() {
   }
 }
 
-// ─── 管理员用户列表 ─────────────────────────────────
+// ─── 私聊 ────────────────────────────────────────────────
+function openChat(targetName) {
+  const modal = document.getElementById('chat-modal');
+  const nameEl = document.getElementById('chat-with');
+  const msgsEl = document.getElementById('chat-msgs');
+  const inputEl = document.getElementById('chat-input');
+  if (!modal || !nameEl || !msgsEl || !inputEl) return;
+  nameEl.textContent = targetName;
+  msgsEl.innerHTML = '';
+  modal.dataset.chatWith = targetName;
+  modal.style.display = 'flex';
+  socket.emit('chat-get-history', { with: targetName });
+  setTimeout(() => inputEl.focus(), 100);
+}
+
+socket.on('chat-history', ({ with: withName, messages }) => {
+  const msgsEl = document.getElementById('chat-msgs');
+  if (!msgsEl) return;
+  msgsEl.innerHTML = (messages || []).map(m => {
+    const isMe = m.from === myName;
+    return `<div class="chat-msg ${isMe ? 'me' : ''}">
+      <div class="cm-from">${isMe ? '我' : esc(m.from)}</div>
+      <div class="cm-text">${esc(m.text)}</div>
+      <div class="cm-time">${new Date(m.time).toLocaleTimeString()}</div>
+    </div>`;
+  }).join('');
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+});
+
+socket.on('chat-message', ({ from, text, time }) => {
+  const modal = document.getElementById('chat-modal');
+  const msgsEl = document.getElementById('chat-msgs');
+  if (!msgsEl) return;
+  const chatWith = modal?.dataset.chatWith;
+  if (chatWith === from || from === myName) {
+    msgsEl.innerHTML += `<div class="chat-msg">
+      <div class="cm-from">${esc(from)}</div>
+      <div class="cm-text">${esc(text)}</div>
+      <div class="cm-time">${new Date(time).toLocaleTimeString()}</div>
+    </div>`;
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+  // 通知提示
+  if (chatWith !== from && from !== myName) {
+    showToast('💬 ' + from + ': ' + text);
+  }
+});
+
+function sendChat() {
+  const modal = document.getElementById('chat-modal');
+  const inputEl = document.getElementById('chat-input');
+  if (!modal || !inputEl) return;
+  const targetName = modal.dataset.chatWith;
+  const text = inputEl.value.trim();
+  if (!targetName || !text) return;
+  socket.emit('chat-send', { to: targetName, text });
+  inputEl.value = '';
+  // 本地立即显示
+  const msgsEl = document.getElementById('chat-msgs');
+  if (msgsEl) {
+    msgsEl.innerHTML += `<div class="chat-msg me">
+      <div class="cm-from">我</div>
+      <div class="cm-text">${esc(text)}</div>
+      <div class="cm-time">${new Date().toLocaleTimeString()}</div>
+    </div>`;
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  }
+}
+
+// 消息权限申请回应
+socket.on('msg-permission-granted', ({ adminName }) => {
+  showToast('✅ ' + adminName + ' 已批准你的消息权限');
+});
+socket.on('msg-permission-denied', ({ adminName }) => {
+  showToast('❌ ' + adminName + ' 拒绝了你的消息权限申请');
+});
+socket.on('admin-msg-permission-request', (req) => {
+  // 管理员收到新申请
+  const container = document.getElementById('admin-msg-requests');
+  if (container) {
+    const div = document.createElement('div');
+    div.className = 'approve-item';
+    div.innerHTML = `<span>${esc(req.from)} 请求向 ${esc(req.target)} 发消息</span>
+      <button class="tool-btn" onclick="approveMsgReq('${esc(req.from)}', true)">✅ 批准</button>
+      <button class="tool-btn danger" onclick="approveMsgReq('${esc(req.from)}', false)">❌ 拒绝</button>`;
+    container.appendChild(div);
+  }
+  showToast('📨 ' + req.from + ' 请求消息权限');
+});
+
+socket.on('admin-msg-requests-list', (requests) => {
+  const container = document.getElementById('admin-msg-requests');
+  if (!container) return;
+  const section = container.closest('.admin-section');
+  if (section) section.style.display = requests.length ? '' : 'none';
+  if (requests.length === 0) {
+    container.innerHTML = '<div class="status-none" style="padding:8px 0;color:var(--text-dim);font-size:12px">暂无申请</div>';
+  } else {
+    container.innerHTML = requests.map(r => {
+      const time = new Date(r.time).toLocaleString();
+      return `<div class="approve-item" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="flex:1;font-size:12px">${esc(r.from)} → ${esc(r.target)} <span style="color:var(--text-dim);font-size:10px">${time}</span></span>
+        <button class="tool-btn" onclick="approveMsgReq('${esc(r.from)}', true)">✅ 批准</button>
+        <button class="tool-btn danger" onclick="approveMsgReq('${esc(r.from)}', false)">❌ 拒绝</button>
+      </div>`;
+    }).join('');
+  }
+});
+
+function approveMsgReq(from, approve) {
+  socket.emit('admin-approve-msg-permission', { from, approve });
+  // 移除申请条目
+  document.querySelectorAll('.approve-item').forEach(el => {
+    if (el.textContent.includes(from)) el.remove();
+  });
+}
 let adminUsersCache = []; // 缓存用户列表用于实时更新在线状态
 
 socket.on('admin-users-list', (users) => {
@@ -286,6 +401,7 @@ socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
   if (isAdmin) {
     socket.emit('admin-get-stats');
     socket.emit('admin-list-resets');
+    socket.emit('admin-list-msg-requests');
   }
   
   const contactBtn = document.getElementById('contact-admin-btn');
@@ -493,10 +609,42 @@ async function showConfirm(msg, title = '确认', icon = '❓') {
 function renderOnlineUsers() {
   const container = document.getElementById('online-users-area');
   if (!container) return;
-  container.innerHTML = onlineUsers.map(u => {
-    const roleIcon = u.isAdmin ? '👑' : (u.role === 'editor' ? '✏️' : (u.role === 'commenter' ? '💬' : '👁️'));
-    return `<div class="online-user">${roleIcon} ${esc(u.name)}</div>`;
-  }).join('');
+  const others = onlineUsers.filter(u => u.name !== myName);
+  if (others.length === 0) {
+    container.innerHTML = '<div class="status-none" style="padding:12px 0;text-align:center;color:var(--text-dim);font-size:13px">暂无其他在线人员</div>';
+  } else {
+    container.innerHTML = others.map(u => {
+      const initial = u.name.charAt(0).toUpperCase();
+      const colors = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#2563eb'];
+      const colorIdx = u.name.length % colors.length;
+      const bgColor = colors[colorIdx];
+      const roleIcon = u.isAdmin ? '👑' : '';
+      return `<div class="online-user-card">
+        <div class="online-user-avatar" style="background:${bgColor}">${esc(initial)}</div>
+        <div class="online-user-info">
+          <div class="online-user-name">${esc(u.name)} ${roleIcon}</div>
+          <div class="online-user-status">在线</div>
+        </div>
+        <button class="online-user-msg-btn" data-user="${esc(u.name)}" title="发送消息">💬</button>
+      </div>`;
+    }).join('');
+    // 绑定发消息按钮
+    container.querySelectorAll('.online-user-msg-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const targetName = btn.dataset.user;
+        if (isAdmin) {
+          openChat(targetName);
+        } else {
+          // 非管理员需要申请
+          if (confirm('需要向管理员申请消息权限。是否发送申请？')) {
+            socket.emit('admin-request-msg-permission', { targetName });
+            showToast('📨 已向管理员发送申请');
+          }
+        }
+      });
+    });
+  }
   // 更新在线计数
   const countEl = document.getElementById('online-count');
   if (countEl) countEl.textContent = '(' + onlineUsers.length + ')';
@@ -603,6 +751,7 @@ function switchModule(moduleName) {
     socket.emit('admin-list-users');
     socket.emit('admin-get-stats');
     socket.emit('admin-list-resets');
+    socket.emit('admin-list-msg-requests');
   }
 }
 
@@ -1162,6 +1311,16 @@ function initUI() {
       receiveModal.style.display = 'none';
     });
   }
+  
+  // 聊天
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  const chatInput = document.getElementById('chat-input');
+  const chatClose = document.getElementById('chat-modal-close');
+  if (chatSendBtn) chatSendBtn.addEventListener('click', sendChat);
+  if (chatInput) chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+  if (chatClose) chatClose.addEventListener('click', () => {
+    document.getElementById('chat-modal').style.display = 'none';
+  });
   
   if (peerNoteSave) {
     peerNoteSave.addEventListener('click', () => {

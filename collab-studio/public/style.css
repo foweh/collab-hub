@@ -1409,4 +1409,46 @@ mark.ann-highlight.rejected { background: rgba(239, 83, 80, 0.15); border-bottom
 /* 右侧面板隐藏 */
 #right-sidebar { display: none; }
 
+/* ─── 在线用户卡片 ─── */
+.online-user-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.online-user-card:hover { background: var(--surface2); }
+.online-user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.online-user-info { flex: 1; min-width: 0; }
+.online-user-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.online-user-status { font-size: 11px; color: #22c55e; }
+.online-user-msg-btn {
+  width: 32px; height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s;
+  flex-shrink: 0;
+}
+.online-user-msg-btn:hover { background: var(--accent); border-color: var(--accent); color: #000; }
+
 

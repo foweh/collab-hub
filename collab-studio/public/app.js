@@ -819,7 +819,7 @@ function renderProjects() {
     }
   }
 
-  const canAccess = (p) => isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private');
+  const canAccess = (p) => p.type === 'folder' || isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private');
   visibleProjects = visibleProjects.filter(p => canAccess(p));
 
   if (visibleProjects.length === 0) {
@@ -839,6 +839,13 @@ function renderProjects() {
     const items = visibleProjects.filter(p => p.type !== 'folder');
     
     folders.forEach(f => {
+      const vis = f.visibility || 'private';
+      const canChange = isAdmin || f.owner === myName;
+      const folderVisLabels = { 'private': '不让查看', 'public-read': '查看', 'public-edit': '编辑' };
+      const folderVisIcons = { 'private': '🔒', 'public-read': '👁️', 'public-edit': '✏️' };
+      const visOpts = ['private', 'public-read', 'public-edit'].map(v =>
+        `<option value="${v}"${vis === v ? ' selected' : ''}>${folderVisLabels[v]}</option>`
+      ).join('');
       const card = document.createElement('div');
       card.className = 'project-card folder';
       const childCount = (f.data && f.data.children) ? f.data.children.length : 0;
@@ -848,6 +855,10 @@ function renderProjects() {
         <div class="p-name">${esc(cleanProjectName(f.name))}</div>
         <div class="p-meta">文件夹 · ${childCount} 个项目 · ${timeAgo(f.updatedAt)}</div>
         <div class="p-owner">${esc(f.owner || '我')}</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px;display:flex;align-items:center;gap:4px">
+          <span title="${folderVisLabels[vis]}">${folderVisIcons[vis]}</span>
+          ${canChange ? `<select class="vis-select" data-id="${f.id}" style="padding:1px 4px;font-size:10px;border:1px solid var(--border);border-radius:3px;background:var(--surface2);color:var(--text);outline:none">${visOpts}</select>` : `<span style="font-size:10px">${folderVisLabels[vis]}</span>`}
+        </div>
         <div style="font-size:11px;color:var(--text-dim);margin-top:4px">双击进入</div>
       `;
       if (canDeleteProject(f)) {
@@ -870,16 +881,36 @@ function renderProjects() {
         clickCount++;
         if (clickTimer) clearTimeout(clickTimer);
         if (clickCount === 2) {
+          // 双击进入文件夹 - 检查权限
+          if (!canViewFolder(f)) {
+            showToast('🔒 此文件夹内容不可查看');
+            clickCount = 0;
+            return;
+          }
           currentFolderPath.push({ id: f.id, name: f.name });
           renderProjects();
           clickCount = 0;
         } else {
           clickTimer = setTimeout(() => {
             clickCount = 0;
+            // 单击打开 - 检查权限
+            if (!canViewFolder(f)) {
+              showToast('🔒 此文件夹内容不可查看');
+              return;
+            }
             openProject(f);
           }, 300);
         }
       });
+
+      // 文件夹可见性选择
+      const folderVisSel = card.querySelector('.vis-select');
+      if (folderVisSel) {
+        folderVisSel.onclick = (e) => e.stopPropagation();
+        folderVisSel.onchange = function() {
+          socket.emit('project-set-visibility', { projectId: f.id, visibility: this.value });
+        };
+      }
       
       projectList.appendChild(card);
     });
@@ -965,8 +996,13 @@ function renderProjects() {
 
 function canDeleteProject(p) {
   const result = isAdmin || p.owner === myName;
-  console.log('canDeleteProject:', p.name, 'isAdmin:', isAdmin, 'owner:', p.owner, 'myName:', myName, 'result:', result);
   return result;
+}
+
+function canViewFolder(f) {
+  if (f.type !== 'folder') return true;
+  if (isAdmin || f.owner === myName) return true;
+  return f.visibility && f.visibility !== 'private';
 }
 
 function cleanProjectName(name) {

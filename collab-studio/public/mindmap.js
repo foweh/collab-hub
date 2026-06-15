@@ -1278,6 +1278,9 @@ document.getElementById('mm-add-root').addEventListener('click', () => {
   selectedIds.clear(); selectedIds.add(id);
   render(); saveData();
 });
+// 面板头部的「+ 节点」按钮
+const mmAddNodeBtn = document.getElementById('mindmap-add-node');
+if (mmAddNodeBtn) mmAddNodeBtn.addEventListener('click', () => document.getElementById('mm-add-root').click());
 document.getElementById('mm-add-child').addEventListener('click', addChild);
 document.getElementById('mm-add-sibling').addEventListener('click', addSibling);
 document.getElementById('mm-delete-node').addEventListener('click', deleteSelected);
@@ -1608,5 +1611,14 @@ window.loadMindMapData = function(data) {
 
 // 初始渲染
 setTimeout(mmResize, 100);
+
+// ─── CollabStudio API ──────────────────────────────────
+window.registerCollabModule && window.registerCollabModule('mindmap', {
+  name: 'mindmap',
+  open: (project) => window.openMindMapEditor(project),
+  save: () => saveData(),
+  getData: () => currentProject ? currentProject.data : null,
+  setData: (data) => { if (currentProject) { currentProject.data = data; render(); } },
+});
 
 })();

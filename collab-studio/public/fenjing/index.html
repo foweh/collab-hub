@@ -415,6 +415,30 @@
         if (shot) {
           shot.image = dataUrl;
           console.log('[绘画] localShots 已更新, 已找到镜头:', shot.number);
+          // 直接更新 DOM 中的对应镜头画面（后备方案）
+          document.querySelectorAll('.shot-row').forEach(row => {
+            const numCell = row.querySelector('.s-cell.s-num');
+            const rowNum = numCell ? parseInt(numCell.textContent.trim()) : null;
+            if (rowNum === shot.number) {
+              const imgCell = row.querySelector('.s-cell.s-img');
+              if (imgCell) {
+                // 替换图片单元格内容为直接显示的 img
+                const existingImg = imgCell.querySelector('img.direct-shot-img');
+                if (existingImg) { existingImg.src = dataUrl; }
+                else {
+                  const img = document.createElement('img');
+                  img.className = 'direct-shot-img';
+                  img.src = dataUrl;
+                  img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:4px;position:absolute;top:0;left:0;z-index:2';
+                  // 让 imgCell 成为定位容器
+                  if (getComputedStyle(imgCell).position === 'static') imgCell.style.position = 'relative';
+                  // 隐藏内部原有的图片组件占位
+                  imgCell.querySelectorAll('.img-cell .img-placeholder, .img-cell .img-loading').forEach(el => el.style.display = 'none');
+                  imgCell.appendChild(img);
+                }
+              }
+            }
+          });
           // 通过 Socket.IO 发送更新
           if (fenjingSocket && fenjingSocket.connected) {
             fenjingSocket.emit('fenjing:shots-update', localShots);

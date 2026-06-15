@@ -798,27 +798,112 @@
 
       // 覆盖导出按钮
       function overrideExportButtons() {
-        document.querySelectorAll('.export-drop button').forEach(btn => {
+        // 添加"导出 Excel"按钮
+        const exportDrop = document.querySelector('.export-drop');
+        if (exportDrop && !exportDrop.querySelector('[data-export="excel"]')) {
+          const btn = document.createElement('button');
+          btn.dataset.export = 'excel';
+          btn.textContent = '导出 Excel';
+          btn.addEventListener('click', (e) => { e.stopPropagation(); exportExcel(); });
+          exportDrop.appendChild(btn);
+        }
+        // 覆盖 JSON/CSV 按钮
+        document.querySelectorAll('.export-drop button:not([data-export="excel"])').forEach(btn => {
           if (btn.dataset.exportOverridden) return;
           const text = btn.textContent.trim();
           if (text === '导出 JSON' || text === '导出 CSV') {
             btn.dataset.exportOverridden = '1';
-            // 在捕获阶段拦截点击，阻止 Vue 的冒泡处理器
             btn.addEventListener('click', (e) => {
               e.stopImmediatePropagation();
               if (text === '导出 JSON') exportJSON();
               else exportCSV();
-            }, true); // useCapture=true
+            }, true);
           }
         });
       }
 
-      // 覆盖 MutationObserver（等 Vue 渲染完成后覆盖导出按钮）
+      // ── Excel 导出（HTML 表格格式，支持嵌入图片） ──
+      function exportExcel() {
+        const headers = ['镜号', '景别', '时长(秒)', '内容', '备注', '参考', '场景预期', '声音', '摄像机角度', '画面'];
+        const rows = [...localShots].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+        let html = '<html><meta charset="utf-8"><body><table border="1" cellpadding="4" cellspacing="0" style="border-collapse:collapse;font-size:12px">';
+        html += '<tr bgcolor="#f0f0f0">' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr>';
+
+        rows.forEach(s => {
+          const img = s.image && typeof s.image === 'string' && s.image.startsWith('data:')
+            ? '<img src="' + s.image + '" width="120" height="68" style="object-fit:cover">'
+            : '';
+          html += '<tr>'
+            + '<td align="center">' + (s.number ?? '') + '</td>'
+            + '<td align="center">' + escHtml(s.frame) + '</td>'
+            + '<td align="center">' + (s.duration ?? '') + '</td>'
+            + '<td>' + escHtml(s.content) + '</td>'
+            + '<td>' + escHtml(s.notes) + '</td>'
+            + '<td>' + escHtml(s.reference) + '</td>'
+            + '<td>' + escHtml(s.sceneExpect) + '</td>'
+            + '<td>' + escHtml(s.sound) + '</td>'
+            + '<td>' + escHtml(s.camera) + '</td>'
+            + '<td align="center">' + img + '</td>'
+            + '</tr>';
+        });
+
+        html += '</table></body></html>';
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = '分镜数据.xls';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+
+      function escHtml(v) {
+        return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      // ── 修复转圈 + 添加 Excel 导出按钮 ──
+      function fixSpinners() {
+        document.querySelectorAll('.img-cell .img-loading').forEach(el => {
+          const cell = el.closest('.img-cell');
+          if (!cell) return;
+          // 如果 spinner 存在超过 3 秒, 替换为 "+" 占位并尝试重新加载
+          if (!cell.dataset.spinnerFix) {
+            cell.dataset.spinnerFix = Date.now().toString();
+            setTimeout(() => {
+              const stillLoading = cell.querySelector('.img-loading');
+              if (stillLoading) {
+                // 加载超时, 强制显示占位符
+                const vueApp = document.getElementById('app')?.__vue_app__;
+                if (vueApp) {
+                  const state = vueApp._instance?.setupState;
+                  // 尝试从 DOM 获取镜头编号并强制设置为 null
+                  const row = cell.closest('.shot-row');
+                  if (row) {
+                    const numCell = row.querySelector('.s-cell.s-num');
+                    const num = numCell ? parseInt(numCell.textContent.trim()) : null;
+                    if (num !== null) {
+                      const shot = localShots.find(s => s.number === num);
+                      if (shot && shot.image === true) shot.image = null;
+                    }
+                  }
+                }
+                cell.innerHTML = '<div class="img-placeholder"><span class="ip-icon" style="color:var(--text-muted)">+</span></div>';
+              }
+            }, 3000);
+          }
+        });
+      }
+
+      // 覆盖 MutationObserver（等 Vue 渲染完成后覆盖导出按钮 + 修复转圈）
       setTimeout(() => {
-        const obs = new MutationObserver(() => { overrideExportButtons(); });
+        const obs = new MutationObserver(() => {
+          overrideExportButtons();
+          fixSpinners();
+        });
         const appEl = document.getElementById('app');
         if (appEl) obs.observe(appEl, { childList: true, subtree: true });
         overrideExportButtons();
+        fixSpinners();
       }, 2000);
 
       // 扩展 MutationObserver

@@ -32,6 +32,12 @@
 .draw-back-btn{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:13px;color:var(--text-secondary,#64748b);transition:.12s}
 .draw-back-btn:hover{border-color:#4f46e5;color:#4f46e5}
 .draw-btn-active{background:var(--accent-light,#eef2ff)!important;color:var(--accent,#4f46e5)!important;border-color:var(--accent,#4f46e5)!important}
+.draw-shapes-wrap{position:relative}
+.draw-shapes-popup{position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg-card,#fff);border:1px solid var(--border,#e2e8f0);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:1000;min-width:130px;padding:4px;display:flex;flex-direction:column;animation:drop-in .1s ease-out}
+.draw-shapes-popup button{display:flex;align-items:center;gap:6px;padding:6px 10px;border:none;background:transparent;cursor:pointer;font-size:12px;color:var(--text,#0f172a);border-radius:4px;text-align:left;transition:background .1s}
+.draw-shapes-popup button:hover{background:var(--bg-hover,#f1f5f9)}
+.draw-shapes-popup button.active{background:var(--accent-light,#eef2ff);color:var(--accent,#4f46e5);font-weight:600}
+@keyframes drop-in{0%{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .draw-panel .panel-actions{display:flex;gap:8px}
 .draw-panel .panel-actions button{padding:6px 14px;border:1px solid var(--border,#e2e8f0);border-radius:6px;background:var(--bg-card,#fff);cursor:pointer;font-size:12px;transition:.12s}
 .draw-panel .panel-actions button:hover{border-color:#4f46e5}
@@ -59,6 +65,18 @@
       <div class="draw-tb">
         <button class="draw-tb-btn active" id="drawBrush" title="画笔">✏️</button>
         <button class="draw-tb-btn" id="drawEraser" title="橡皮">🧹</button>
+        <div class="draw-shapes-wrap" id="shapesWrap">
+          <button class="draw-tb-btn" id="drawShapesBtn" title="形状工具">🔷 ▾</button>
+          <div class="draw-shapes-popup" id="shapesPopup" style="display:none">
+            <button data-shape="rect" class="active">⬜ 矩形</button>
+            <button data-shape="fillRect">◼ 实心矩形</button>
+            <button data-shape="circle">⭕ 圆形</button>
+            <button data-shape="fillCircle">● 实心圆</button>
+            <button data-shape="line">╱ 直线</button>
+            <button data-shape="arrow">➡ 箭头</button>
+            <button data-shape="triangle">△ 三角形</button>
+          </div>
+        </div>
         <span class="draw-tb-sep"></span>
         <input type="color" id="drawColor" value="#ffffff" class="draw-tb-color" title="颜色">
         <span class="draw-tb-sep"></span>
@@ -66,7 +84,16 @@
         <input type="range" id="drawSize" min="1" max="30" value="3" class="draw-tb-rng">
         <span class="draw-tb-num" id="drawSizeVal">3</span>
         <span class="draw-tb-sep"></span>
+        <label class="draw-tb-lbl">平滑</label>
+        <input type="range" id="drawSmooth" min="0" max="10" value="5" class="draw-tb-rng">
+        <span class="draw-tb-num" id="drawSmoothVal">5</span>
+        <span class="draw-tb-sep"></span>
+        <label class="draw-tb-lbl">透明</label>
+        <input type="range" id="drawOpacity" min="1" max="100" value="100" class="draw-tb-rng">
+        <span class="draw-tb-num" id="drawOpacityVal">100%</span>
+        <span class="draw-tb-sep"></span>
         <button class="draw-tb-btn" id="drawClear" title="清空">🗑️</button>
+        <button class="draw-tb-btn" id="drawFullscreen" title="全屏">⛶</button>
         <button class="draw-back-btn" id="drawBack">← 返回分镜</button>
       </div>
       <div class="draw-canvas-wrap">
@@ -86,7 +113,8 @@
       const ctx         = canvas.getContext('2d');
 
       // ── 绘画状态 ──
-      let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush';
+      let isDrawing = false, lastX = 0, lastY = 0, tool = 'brush', shapeTool = null;
+      let startX = 0, startY = 0; // for shape tools
       let offscreen = document.createElement('canvas');
       let currentShotId = null;      // 当前正在绘制的镜头 ID
       let currentShotNum = null;     // 镜头编号（显示用）
@@ -145,24 +173,155 @@
         return { x: (cx - r.left) * (canvas.width / r.width), y: (cy - r.top) * (canvas.height / r.height) };
       }
 
-      function start(e) { e.preventDefault(); isDrawing = true; const p = getPos(e); lastX = p.x; lastY = p.y; }
-      function move(e) {
-        if (!isDrawing) return; e.preventDefault();
-        const p = getPos(e);
-        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      function getCtxProps() {
+        const alpha = parseInt(document.getElementById('drawOpacity').value) / 100;
+        ctx.globalAlpha = alpha;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         if (tool === 'eraser') {
           ctx.globalCompositeOperation = 'destination-out';
           ctx.strokeStyle = 'rgba(0,0,0,1)';
           ctx.lineWidth = parseInt(document.getElementById('drawSize').value) * 4;
+        } else if (shapeTool) {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = document.getElementById('drawColor').value;
+          ctx.lineWidth = parseInt(document.getElementById('drawSize').value);
         } else {
           ctx.globalCompositeOperation = 'source-over';
           ctx.strokeStyle = document.getElementById('drawColor').value;
           ctx.lineWidth = parseInt(document.getElementById('drawSize').value);
         }
-        ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
+      }
+
+      function smoothLine(x1, y1, x2, y2) {
+        const smooth = parseInt(document.getElementById('drawSmooth').value);
+        if (smooth <= 0) {
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          return;
+        }
+        const steps = Math.max(1, Math.round(smooth * 1.5));
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const cx = x1 + (x2 - x1) * t;
+          const cy = y1 + (y2 - y1) * t;
+          const prevT = (i - 1) / steps;
+          const px = x1 + (x2 - x1) * prevT;
+          const py = y1 + (y2 - y1) * prevT;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, cy); ctx.stroke();
+        }
+      }
+
+      function start(e) {
+        e.preventDefault();
+        const p = getPos(e);
+        lastX = p.x; lastY = p.y;
+        startX = p.x; startY = p.y;
+        if (shapeTool) {
+          // For shapes, save offscreen state before drawing
+          const tmp = document.createElement('canvas');
+          tmp.width = canvas.width; tmp.height = canvas.height;
+          tmp.getContext('2d').drawImage(canvas, 0, 0);
+          offscreen = tmp;
+        }
+        isDrawing = true;
+      }
+
+      function move(e) {
+        if (!isDrawing) return; e.preventDefault();
+        const p = getPos(e);
+        getCtxProps();
+
+        if (shapeTool) {
+          // Restore canvas from offscreen (before previous shape preview)
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0);
+          ctx.fillStyle = '#1a1a2e';
+          ctx.globalCompositeOperation = 'source-over';
+          // Draw shape preview
+          drawShape(shapeTool, startX, startY, p.x, p.y, false);
+          return;
+        }
+
+        if (tool === 'brush' || tool === 'eraser') {
+          smoothLine(lastX, lastY, p.x, p.y);
+        }
         lastX = p.x; lastY = p.y;
       }
-      function stop() { if (!isDrawing) return; isDrawing = false; ctx.globalCompositeOperation = 'source-over'; }
+
+      function stop() {
+        if (!isDrawing) return;
+        isDrawing = false;
+        getCtxProps();
+        if (shapeTool) {
+          const p = { x: lastX, y: lastY };
+          const endP = { x: lastX, y: lastY };
+          // Redraw from offscreen (clean state before preview)
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0);
+          ctx.fillStyle = '#1a1a2e';
+          // Draw final shape
+          drawShape(shapeTool, startX, startY, endP.x, endP.y, true);
+          // Update offscreen with final result
+          const tmp = document.createElement('canvas');
+          tmp.width = canvas.width; tmp.height = canvas.height;
+          tmp.getContext('2d').drawImage(canvas, 0, 0);
+          offscreen = tmp;
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+      }
+
+      function drawShape(type, x1, y1, x2, y2, finalize) {
+        const dx = x2 - x1, dy = y2 - y1;
+        const strokeColor = document.getElementById('drawColor').value;
+        const lineW = parseInt(document.getElementById('drawSize').value);
+
+        if (type === 'rect') {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = lineW;
+          ctx.strokeRect(x1, y1, dx, dy);
+        } else if (type === 'fillRect') {
+          ctx.fillStyle = strokeColor;
+          ctx.fillRect(x1, y1, dx, dy);
+        } else if (type === 'circle') {
+          const r = Math.sqrt(dx*dx + dy*dy) / 2;
+          const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = lineW;
+          ctx.beginPath(); ctx.arc(cx, cy, Math.abs(r), 0, Math.PI * 2); ctx.stroke();
+        } else if (type === 'fillCircle') {
+          const r = Math.sqrt(dx*dx + dy*dy) / 2;
+          const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+          ctx.fillStyle = strokeColor;
+          ctx.beginPath(); ctx.arc(cx, cy, Math.abs(r), 0, Math.PI * 2); ctx.fill();
+        } else if (type === 'line') {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = lineW;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        } else if (type === 'arrow') {
+          const angle = Math.atan2(dy, dx);
+          const len = Math.sqrt(dx*dx + dy*dy);
+          const headLen = Math.min(20, len * 0.3);
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = lineW;
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          // Arrow head
+          ctx.fillStyle = strokeColor;
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(angle - 0.4), y2 - headLen * Math.sin(angle - 0.4));
+          ctx.lineTo(x2 - headLen * Math.cos(angle + 0.4), y2 - headLen * Math.sin(angle + 0.4));
+          ctx.closePath(); ctx.fill();
+        } else if (type === 'triangle') {
+          const midX = (x1 + x2) / 2;
+          ctx.fillStyle = strokeColor;
+          ctx.beginPath();
+          ctx.moveTo(midX, y1);
+          ctx.lineTo(x2, y2);
+          ctx.lineTo(x1, y2);
+          ctx.closePath(); ctx.fill();
+        }
+      }
 
       canvas.addEventListener('mousedown', start);
       canvas.addEventListener('mousemove', move);
@@ -175,18 +334,61 @@
       // ── 工具绑定 ──
       const brushBtn  = document.getElementById('drawBrush');
       const eraserBtn = document.getElementById('drawEraser');
-      brushBtn.addEventListener('click', () => { tool = 'brush'; brushBtn.classList.add('active'); eraserBtn.classList.remove('active'); canvas.style.cursor = 'crosshair'; });
-      eraserBtn.addEventListener('click', () => { tool = 'eraser'; eraserBtn.classList.add('active'); brushBtn.classList.remove('active'); canvas.style.cursor = 'cell'; });
+      brushBtn.addEventListener('click', () => { tool = 'brush'; shapeTool = null; brushBtn.classList.add('active'); eraserBtn.classList.remove('active'); canvas.style.cursor = 'crosshair'; });
+      eraserBtn.addEventListener('click', () => { tool = 'eraser'; shapeTool = null; eraserBtn.classList.add('active'); brushBtn.classList.remove('active'); canvas.style.cursor = 'cell'; });
 
       const sizeInput = document.getElementById('drawSize');
       const sizeVal   = document.getElementById('drawSizeVal');
       sizeInput.addEventListener('input', () => { sizeVal.textContent = sizeInput.value; });
+
+      const smoothInput = document.getElementById('drawSmooth');
+      const smoothVal   = document.getElementById('drawSmoothVal');
+      smoothInput.addEventListener('input', () => { smoothVal.textContent = smoothInput.value; });
+
+      const opacityInput = document.getElementById('drawOpacity');
+      const opacityVal   = document.getElementById('drawOpacityVal');
+      opacityInput.addEventListener('input', () => { opacityVal.textContent = opacityInput.value + '%'; });
+
+      // Shape popup
+      const shapesBtn = document.getElementById('drawShapesBtn');
+      const shapesPopup = document.getElementById('shapesPopup');
+      let currentShape = 'rect';
+      shapesBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        shapesPopup.style.display = shapesPopup.style.display === 'none' ? 'flex' : 'none';
+      });
+      document.addEventListener('click', () => { shapesPopup.style.display = 'none'; });
+      shapesPopup.addEventListener('click', (e) => e.stopPropagation());
+      shapesPopup.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          shapesPopup.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          currentShape = btn.dataset.shape;
+          shapeTool = currentShape;
+          tool = 'shape';
+          brushBtn.classList.remove('active');
+          eraserBtn.classList.remove('active');
+          canvas.style.cursor = 'crosshair';
+          shapesPopup.style.display = 'none';
+          shapesBtn.innerHTML = btn.textContent.trim().slice(0, 2) + ' ▾';
+        });
+      });
 
       document.getElementById('drawClear').addEventListener('click', () => {
         offscreen.width = 0; offscreen.height = 0;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = '#1a1a2e';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.globalAlpha = 1;
+      });
+
+      // Fullscreen
+      document.getElementById('drawFullscreen').addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          drawPanel.requestFullscreen();
+        } else {
+          document.exitFullscreen();
+        }
       });
 
       document.getElementById('drawExport').addEventListener('click', () => {
@@ -372,6 +574,10 @@
       // ── MutationObserver 监听镜头行出现 ──
       const observer = new MutationObserver(() => {
         document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+        // 将新建分镜占位符的 "＋" 图标改为 🎬
+        document.querySelectorAll('.new-shot-placeholder .ph-img').forEach(el => {
+          if (el.textContent.trim() === '＋') el.textContent = '🎬';
+        });
       });
       observer.observe(document.getElementById('app') || document.body, {
         childList: true, subtree: true,
@@ -409,6 +615,9 @@
       // 初始延迟后尝试一次 injection
       setTimeout(() => {
         document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+        document.querySelectorAll('.new-shot-placeholder .ph-img').forEach(el => {
+          if (el.textContent.trim() === '＋') el.textContent = '🎬';
+        });
       }, 1000);
 
     })();

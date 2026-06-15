@@ -217,7 +217,7 @@ app.use(helmet({
 app.use(express.json({ limit: '3mb' }));
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
-  cors: { origin: '*' },
+  cors: false,
   maxHttpBufferSize: 10 * 1024 * 1024,
 });
 

@@ -210,6 +210,7 @@ function renderAdminUsers(users) {
       }</td>
     </tr>`;
   }).join('');
+  refreshAdminStatus(); // 渲染后立即用实时在线数据纠正绿点
 }
 
 // 实时更新管理员表格的在线状态
@@ -324,6 +325,7 @@ socket.on('init', (data) => {
   renderProjects();
   updatePeersUI();
   renderOnlineUsers();
+  refreshAdminStatus();
 });
 
 socket.on('bridge-message', (msg) => {

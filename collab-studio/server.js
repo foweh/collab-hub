@@ -141,7 +141,8 @@ const onlineUsers = new Map(); // socket.id → { name, joinedAt, isAdmin, finge
 function broadcastOnlineUsers() {
   const list = [];
   for (const [sid, u] of onlineUsers) {
-    list.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false });
+    const userObj = users[u.name];
+    list.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false, role: userObj?.role || (u.isAdmin ? 'editor' : 'commenter') });
   }
   io.emit('online-users', list);
 }
@@ -484,7 +485,8 @@ io.on('connection', (socket) => {
   for (const [sid, p] of peers) if (p.connected) peerList.push({ serverId: sid, name: p.name, ip: p.ip, port: p.port, connected: true, note: p.note || '' });
   const userList = [];
   for (const [sid, u] of onlineUsers) {
-    userList.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false });
+    const userObj = users[u.name];
+    userList.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false, role: userObj?.role || (u.isAdmin ? 'editor' : 'commenter') });
   }
   socket.emit('init', {
     serverId: SERVER_ID, serverName: SERVER_NAME,

@@ -596,8 +596,12 @@
       }
 
       // ── MutationObserver 监听镜头行出现 ──
+      // 扩展 MutationObserver：注入绘图按钮 + 右键菜单 + 图标替换
       const observer = new MutationObserver(() => {
-        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(row => {
+          injectDrawButton(row);
+          bindContextMenu(row);
+        });
         // 将新建分镜占位符的 "＋" 图标改为 🎬
         document.querySelectorAll('.new-shot-placeholder .ph-img').forEach(el => {
           if (el.textContent.trim() === '＋') el.textContent = '🎬';
@@ -638,11 +642,114 @@
 
       // 初始延迟后尝试一次 injection
       setTimeout(() => {
-        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(injectDrawButton);
+        document.querySelectorAll('.shot-row:not(.new-shot-placeholder)').forEach(row => {
+          injectDrawButton(row);
+          bindContextMenu(row);
+        });
         document.querySelectorAll('.new-shot-placeholder .ph-img').forEach(el => {
           if (el.textContent.trim() === '＋') el.textContent = '🎬';
         });
       }, 1000);
+
+      // ── 右键菜单 ─────────────────────────────────────────
+      // 创建菜单元素
+      const ctxMenu = document.createElement('div');
+      ctxMenu.id = 'shotContextMenu';
+      ctxMenu.style.cssText = 'display:none;position:fixed;z-index:9999;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:140px;padding:4px;font-size:13px';
+      ctxMenu.innerHTML = `
+        <button data-action="copy" style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 12px;border:none;background:transparent;cursor:pointer;border-radius:4px;color:#0f172a">📋 复制镜头</button>
+        <button data-action="cut" style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 12px;border:none;background:transparent;cursor:pointer;border-radius:4px;color:#0f172a">✂️ 剪切镜头</button>
+        <div style="height:1px;background:#e2e8f0;margin:3px 0"></div>
+        <button data-action="delete" style="display:flex;align-items:center;gap:8px;width:100%;padding:7px 12px;border:none;background:transparent;cursor:pointer;border-radius:4px;color:#ef4444">🗑️ 删除镜头</button>
+      `;
+      document.body.appendChild(ctxMenu);
+      let ctxShotRow = null;
+
+      // 点击菜单项
+      ctxMenu.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn || !ctxShotRow) return;
+        const action = btn.dataset.action;
+        const numCell = ctxShotRow.querySelector('.s-cell.s-num');
+        const shotNum = numCell ? parseInt(numCell.textContent.trim()) : null;
+        let shot = null, idx = -1;
+        if (shotNum !== null) {
+          idx = localShots.findIndex(s => s.number === shotNum);
+          if (idx >= 0) shot = localShots[idx];
+        }
+        if (!shot) {
+          // fallback: match by row index
+          const rows = [...document.querySelectorAll('.shot-row:not(.new-shot-placeholder)')];
+          idx = rows.indexOf(ctxShotRow);
+          shot = localShots[idx] || null;
+        }
+
+        if (action === 'delete') {
+          if (!shot) return;
+          if (!confirm(`确定删除镜头 #${shot.number}？`)) return;
+          localShots.splice(idx, 1);
+          // 重新编号
+          localShots.forEach((s, i) => { s.order = i + 1; });
+          emitShotsUpdate();
+        } else if (action === 'copy') {
+          if (!shot) return;
+          const newId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          const maxNum = localShots.reduce((m, s) => Math.max(m, s.number || 0), 0);
+          const newShot = JSON.parse(JSON.stringify(shot));
+          newShot.id = newId;
+          newShot.number = maxNum + 1;
+          newShot.order = shot.order + 1;
+          newShot.image = null; // Don't copy image data
+          localShots.splice(idx + 1, 0, newShot);
+          // 重新编号
+          localShots.forEach((s, i) => { s.order = i + 1; });
+          emitShotsUpdate();
+        } else if (action === 'cut') {
+          if (!shot) return;
+          const copied = JSON.parse(JSON.stringify(shot));
+          const newId = Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+          copied.id = newId;
+          copied.image = null;
+          localShots.splice(idx, 1);
+          // 粘贴到最后
+          const maxNum = localShots.reduce((m, s) => Math.max(m, s.number || 0), 0);
+          copied.number = maxNum + 1;
+          copied.order = localShots.length + 1;
+          localShots.push(copied);
+          localShots.forEach((s, i) => { s.order = i + 1; });
+          emitShotsUpdate();
+        }
+        ctxMenu.style.display = 'none';
+        ctxShotRow = null;
+      });
+
+      // 隐藏菜单
+      document.addEventListener('click', () => { ctxMenu.style.display = 'none'; ctxShotRow = null; });
+      document.addEventListener('contextmenu', () => { ctxMenu.style.display = 'none'; });
+
+      // 辅助：发送 shots 更新
+      function emitShotsUpdate() {
+        if (fenjingSocket && fenjingSocket.connected) {
+          fenjingSocket.emit('fenjing:shots-update', localShots);
+        }
+      }
+
+      // 在 MutationObserver 中添加右键绑定
+      function bindContextMenu(row) {
+        if (row.dataset.ctxBound) return;
+        row.dataset.ctxBound = '1';
+        row.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          ctxShotRow = row;
+          ctxMenu.style.left = e.clientX + 'px';
+          ctxMenu.style.top = e.clientY + 'px';
+          ctxMenu.style.display = 'flex';
+          ctxMenu.style.flexDirection = 'column';
+        });
+      }
+
+      // 扩展 MutationObserver
+      // (observer already bound above)
 
     })();
     </script>

@@ -491,12 +491,17 @@ async function showConfirm(msg, title = '确认', icon = '❓') {
 
 // ─── 在线用户 ───────────────────────────────────────────
 function renderOnlineUsers() {
-  const container = document.getElementById('online-users');
+  const container = document.getElementById('online-users-area');
   if (!container) return;
   container.innerHTML = onlineUsers.map(u => {
     const roleIcon = u.isAdmin ? '👑' : (u.role === 'editor' ? '✏️' : (u.role === 'commenter' ? '💬' : '👁️'));
     return `<div class="online-user">${roleIcon} ${esc(u.name)}</div>`;
   }).join('');
+  // 更新在线计数
+  const countEl = document.getElementById('online-count');
+  if (countEl) countEl.textContent = '(' + onlineUsers.length + ')';
+  const headerCount = document.getElementById('online-count-header');
+  if (headerCount) headerCount.textContent = onlineUsers.length;
 }
 
 // ─── 设备列表 ───────────────────────────────────────────

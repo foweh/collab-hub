@@ -171,11 +171,16 @@ function updateUIBasedOnRole() {
 }
 
 // ─── 管理员用户列表 ─────────────────────────────────
+let adminUsersCache = []; // 缓存用户列表用于实时更新在线状态
+
 socket.on('admin-users-list', (users) => {
+  adminUsersCache = users;
+  renderAdminUsers(users);
+});
+
+function renderAdminUsers(users) {
   const tbody = document.getElementById('admin-users-tbody');
   if (!tbody) return;
-  const onlineNames = new Set();
-  // 从当前的 online-users 事件构建在线集合（通过 DOM 中的 badge 信息）
   tbody.innerHTML = users.map(u => {
     const isOnline = u.online;
     const roleLabel = u.isAdmin ? '管理员' : (u.role === 'editor' ? '编辑者' : (u.role === 'commenter' ? '评论者' : '观察者'));
@@ -192,9 +197,9 @@ socket.on('admin-users-list', (users) => {
       else lastSeenText = Math.floor(diff / 604800000) + ' 周前';
     }
     const fingerprintShort = u.fingerprint ? u.fingerprint.slice(0, 12) + '...' : '-';
-    return `<tr>
+    return `<tr data-username="${esc(u.name)}">
       <td><strong>${esc(u.name)}</strong>${u.isAdmin ? ' 👑' : ''}</td>
-      <td>${statusHtml}</td>
+      <td class="admin-status">${statusHtml}</td>
       <td style="font-size:11px;color:var(--text-dim)">${u.lastSeen ? lastSeenText : '从未上线'}</td>
       <td>${roleLabel}</td>
       <td style="font-size:10px;color:var(--text-dim)">${fingerprintShort}</td>
@@ -205,7 +210,21 @@ socket.on('admin-users-list', (users) => {
       }</td>
     </tr>`;
   }).join('');
-});
+}
+
+// 实时更新管理员表格的在线状态
+function refreshAdminStatus() {
+  if (!adminUsersCache.length) return;
+  const onlineSet = new Set((window.onlineUsers || []).map(u => u.name));
+  adminUsersCache.forEach(u => {
+    const row = document.querySelector(`#admin-users-tbody tr[data-username="${esc(u.name)}"]`);
+    if (!row) return;
+    const isOnline = onlineSet.has(u.name);
+    row.querySelector('.admin-status').innerHTML = isOnline
+      ? '<span style="color:#22c55e">● 在线</span>'
+      : '<span style="color:#94a3b8">○ 离线</span>';
+  });
+}
 
 function changeUserPwd(name) {
   const pwd = prompt('输入新密码给用户: ' + name);
@@ -383,6 +402,7 @@ socket.on('scan-status', ({ state, remaining }) => {
 socket.on('online-users', (users) => {
   onlineUsers = users;
   renderOnlineUsers();
+  refreshAdminStatus();
 });
 
 socket.on('user-joined', (user) => {
@@ -390,11 +410,13 @@ socket.on('user-joined', (user) => {
     onlineUsers.push(user);
   }
   renderOnlineUsers();
+  refreshAdminStatus();
 });
 
 socket.on('user-left', (userName) => {
   onlineUsers = onlineUsers.filter(u => u.name !== userName);
   renderOnlineUsers();
+  refreshAdminStatus();
 });
 
 // ─── UI 辅助函数 ────────────────────────────────────────

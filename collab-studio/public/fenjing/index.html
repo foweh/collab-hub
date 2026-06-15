@@ -752,6 +752,25 @@
       // 扩展 MutationObserver
       // (observer already bound above)
 
+      // ── 新建场时不切换活动场景 ──
+      let prevSceneCount = document.querySelectorAll('.scene-tag').length;
+      const sceneObserver = new MutationObserver(() => {
+        const tags = document.querySelectorAll('.scene-tag');
+        if (tags.length > prevSceneCount && tags.length > 1) {
+          // 有新场被创建, 点击第一个场标签切回去
+          const firstTag = tags[0];
+          if (firstTag && !firstTag.classList.contains('active')) {
+            firstTag.click();
+          }
+        }
+        prevSceneCount = tags.length;
+      });
+      // 等 Vue 加载完成后开始观察
+      setTimeout(() => {
+        const appEl = document.getElementById('app');
+        if (appEl) sceneObserver.observe(appEl, { childList: true, subtree: true });
+      }, 2000);
+
     })();
     </script>
   </body>

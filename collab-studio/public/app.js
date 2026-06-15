@@ -250,25 +250,29 @@ socket.on('admin-msg-permission-request', (req) => {
   // 管理员收到新申请
   const container = document.getElementById('admin-msg-requests');
   if (container) {
-    const section = container.closest('.admin-section');
+    // 显示父级 section
+    const section = document.getElementById('admin-msg-permissions');
     if (section) section.style.display = '';
     // 移除"暂无申请"
     const emptyMsg = container.querySelector('.status-none');
     if (emptyMsg) emptyMsg.remove();
+    // 检查是否已存在同一申请
+    if (container.querySelector(`[data-from="${esc(req.from)}"]`)) return;
     const div = document.createElement('div');
     div.className = 'approve-item';
+    div.dataset.from = req.from;
     div.innerHTML = `<span>${esc(req.from)} 请求向 ${esc(req.target)} 发消息</span>
       <button class="tool-btn" onclick="approveMsgReq('${esc(req.from)}', true)">✅ 批准</button>
       <button class="tool-btn danger" onclick="approveMsgReq('${esc(req.from)}', false)">❌ 拒绝</button>`;
     container.appendChild(div);
   }
-  showToast('📨 ' + req.from + ' 请求消息权限');
+  showToast('📨 ' + req.from + ' 请求消息权限 - 请在管理面板审批');
 });
 
 socket.on('admin-msg-requests-list', (requests) => {
   const container = document.getElementById('admin-msg-requests');
   if (!container) return;
-  const section = container.closest('.admin-section');
+  const section = document.getElementById('admin-msg-permissions');
   if (section) section.style.display = requests.length ? '' : 'none';
   if (requests.length === 0) {
     container.innerHTML = '<div class="status-none" style="padding:8px 0;color:var(--text-dim);font-size:12px">暂无申请</div>';

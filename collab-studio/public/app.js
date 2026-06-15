@@ -508,33 +508,36 @@ function renderOnlineUsers() {
 
 // ─── 协作者头像叠放 ───────────────────────────────────
 function renderCollabAvatars() {
-  const container = document.getElementById('collab-avatars');
+  // 找到当前活动面板中的 avatar 容器
+  const container = document.querySelector('.module-panel.active [data-avatar-container]');
   if (!container) return;
-  // 只在文件夹内显示
-  const inFolder = currentFolderPath.length > 0;
-  if (!inFolder || !onlineUsers.length) {
+  // 只在打开具体项目时显示（不在项目列表/消息/设备/日志面板显示）
+  const activePanel = document.querySelector('.module-panel.active');
+  const editorPanels = ['panel-script', 'panel-mindmap', 'panel-story', 'panel-storyboard', 'panel-admin', 'panel-project-detail'];
+  const isEditorOpen = activePanel && editorPanels.some(id => activePanel.id === id);
+  if (!isEditorOpen || !onlineUsers.length) {
     container.style.display = 'none';
     return;
   }
   container.style.display = 'flex';
+  container.innerHTML = '';
   const maxShow = 3;
   const showUsers = onlineUsers.slice(0, maxShow);
   const remainder = onlineUsers.length - maxShow;
-  let html = '';
   showUsers.forEach(u => {
-    const isOnline = true;
-    html += `<div class="collab-avatar ${isOnline ? 'online' : ''}" style="position:relative;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface2)">
-      <span class="collab-tooltip">${esc(u.name)}</span>
-      ${esc(u.name.charAt(0).toUpperCase())}
-    </div>`;
+    const el = document.createElement('div');
+    el.className = 'collab-avatar online';
+    el.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface2)';
+    el.innerHTML = `<span class="collab-tooltip">${esc(u.name)}</span>${esc(u.name.charAt(0).toUpperCase())}`;
+    container.appendChild(el);
   });
   if (remainder > 0) {
-    html += `<div class="collab-avatar-text" style="position:relative">
-      <span class="collab-tooltip">还有 ${remainder} 人</span>
-      +${remainder}
-    </div>`;
+    const el = document.createElement('div');
+    el.className = 'collab-avatar-text';
+    el.style.position = 'relative';
+    el.innerHTML = `<span class="collab-tooltip">还有 ${remainder} 人</span>+${remainder}`;
+    container.appendChild(el);
   }
-  container.innerHTML = html;
 }
 
 // ─── 设备列表 ───────────────────────────────────────────
@@ -950,11 +953,6 @@ function renderProjects() {
     if (p.type === 'folder') return true;
     if (isAdmin || p.owner === myName) return true;
     if (p.visibility && p.visibility !== 'private') return true;
-    // 如果父文件夹是公开的，子项目也自动可见
-    if (p.parentId) {
-      const parent = projects.find(pr => pr.id === p.parentId);
-      if (parent && parent.visibility && parent.visibility !== 'private') return true;
-    }
     return false;
   };
   visibleProjects = visibleProjects.filter(p => canAccess(p));

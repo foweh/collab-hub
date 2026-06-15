@@ -263,6 +263,42 @@ app.get('/storyboard/*', (req, res) => {
   res.sendFile(path.join(FENJING_LOCAL_DIST, 'index.html'));
 });
 
+// ─── 头像上传 ────────────────────────────────────────────
+app.use(express.json({ limit: '3mb' }));
+app.post('/api/upload-avatar', async (req, res) => {
+  try {
+    const { name, imageData } = req.body;
+    if (!name || !imageData) return res.json({ error: '缺少参数' });
+    if (!users[name]) return res.json({ error: '用户不存在' });
+
+    // 频率限制：每天5次
+    if (!checkRateLimit(`avatar:${name}`, 5, 86400000)) {
+      return res.json({ error: '头像修改过于频繁，每天最多5次' });
+    }
+
+    // 验证图片格式 (data:image/png;base64,...)
+    const matches = imageData.match(/^data:image\/(png|jpg|jpeg|gif);base64,(.+)$/);
+    if (!matches) return res.json({ error: '不支持的图片格式，仅支持 png/jpg/gif' });
+
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    if (buffer.length > 2 * 1024 * 1024) return res.json({ error: '图片过大，最大2MB' });
+
+    const filename = `avatar_${name}_${Date.now()}.${ext}`;
+    const filepath = path.join(__dirname, 'public', 'avatars', filename);
+    require('fs').writeFileSync(filepath, buffer);
+
+    users[name].avatar = filename;
+    auth.saveUsers();
+
+    console.log(`[头像] ${name} 上传头像: ${filename}`);
+    res.json({ ok: true, url: `/avatars/${filename}` });
+  } catch (e) {
+    console.error('[头像] 上传失败:', e);
+    res.json({ error: '上传失败: ' + e.message });
+  }
+});
+
 // ─── UDP 发现 ────────────────────────────────────────────
 let broadcastDiscover = () => {};
 if (!JOIN_TARGET) {
@@ -521,7 +557,7 @@ io.on('connection', (socket) => {
         onlineUsers.set(socket.id, { name: userName, joinedAt: Date.now(), isAdmin: socket.isAdmin, fingerprint: fingerprint || '' });
         broadcastOnlineUsers();
         addLog(socket.id, userName, 'reconnected', 'system', '');
-        socket.emit('login-success', { userName, isAdmin: socket.isAdmin, hasPassword: !!users[userName]?.passwordHash, token });
+        socket.emit('login-success', { userName, isAdmin: socket.isAdmin, hasPassword: !!users[userName]?.passwordHash, token, avatar: users[userName]?.avatar || '' });
         return;
       }
       console.log(`[login] token 无效，回退到密码验证`);
@@ -569,11 +605,20 @@ io.on('connection', (socket) => {
           console.log(`[login] 用户 "${userName}" 首次设置密码`);
         }
       } else {
+        // 新用户注册频率限制：每IP每小时最多10次
+        const ip = socket.handshake?.address || 'unknown';
+        if (!checkRateLimit(`register:${ip}`, 10, 3600000)) {
+          console.log(`[login] 拒绝: 注册过于频繁 IP=${ip}`);
+          socket.emit('login-error', '注册过于频繁，请稍后再试');
+          return;
+        }
         console.log(`[login] 新用户 "${userName}" 自动注册`);
         users[userName] = {
           passwordHash: password ? await auth.hashPwd(password) : '',
           isAdmin: false, fingerprint: '', isBanned: false,
-          role: 'editor'
+          role: 'editor',
+          lastSeen: 0,
+          avatar: ''
         };
       }
     }
@@ -585,7 +630,7 @@ io.on('connection', (socket) => {
     auth.updateLastSeen(userName);
     broadcastOnlineUsers();
     addLog(socket.id, userName, 'joined', 'system', '');
-    socket.emit('login-success', { userName, isAdmin, hasPassword: !!users[userName]?.passwordHash, token: auth.generateSessionToken(userName) });
+    socket.emit('login-success', { userName, isAdmin, hasPassword: !!users[userName]?.passwordHash, role: isAdmin ? 'editor' : (users[userName]?.role || 'commenter'), avatar: users[userName]?.avatar || '', token: auth.generateSessionToken(userName) });
   });
 
   socket.on('set-server-name', (name) => {
@@ -884,6 +929,45 @@ io.on('connection', (socket) => {
     auth.saveUsers();
     broadcastOnlineUsers();
     addLog(socket.id, socket.userName, 'changed password for', 'system', targetName);
+  });
+
+  // ── 用户自行更新资料 ──
+  socket.on('update-profile', async ({ field, value }) => {
+    const userName = socket.userName;
+    if (!userName || !users[userName]) return;
+
+    if (field === 'name') {
+      if (!validateString(value, 50) || value.trim().length < 1) return;
+      // 频率限制：每6小时1次
+      if (!checkRateLimit(`rename:${userName}`, 1, 21600000)) {
+        return socket.emit('profile-update-error', '名称修改过于频繁，每6小时仅可修改1次');
+      }
+      const newName = value.trim();
+      if (newName === userName) return socket.emit('profile-update-error', '新名称与当前相同');
+      if (auth.isNameBanned(newName)) return socket.emit('profile-update-error', '该名称已被禁止使用');
+      if (users[newName]) return socket.emit('profile-update-error', '该名称已被他人使用');
+
+      // 迁移用户数据
+      users[newName] = { ...users[userName] };
+      delete users[userName];
+      auth.saveUsers();
+      // 更新 socket
+      socket.userName = newName;
+      // 通知客户端
+      socket.emit('profile-updated', { field: 'name', value: newName });
+      addLog(socket.id, userName, 'renamed to', 'system', newName);
+    } else if (field === 'password') {
+      const { oldPassword, newPassword } = value;
+      if (!oldPassword || !newPassword || newPassword.length < 3) return;
+      if (!(await auth.validatePassword(userName, oldPassword))) {
+        return socket.emit('profile-update-error', '当前密码错误');
+      }
+      users[userName].passwordHash = await auth.hashPwd(newPassword);
+      users[userName].pwdLegacy = false;
+      auth.saveUsers();
+      socket.emit('profile-updated', { field: 'password' });
+      addLog(socket.id, userName, 'changed password', 'system', '');
+    }
   });
   socket.on('admin-ban-user', ({ targetName, fingerprint }) => {
     if (!validateString(targetName, 50) || (fingerprint && !validateString(fingerprint, 200))) return;

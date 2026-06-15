@@ -130,7 +130,8 @@ function getOrCreateUser(name, password) {
       passwordHash: password ? hashPwdSync(password) : '',
       isAdmin: false, fingerprint: '', isBanned: false,
       role: 'editor',
-      lastSeen: 0
+      lastSeen: 0,
+      avatar: ''
     };
   }
   return users[name];
@@ -141,6 +142,15 @@ function updateLastSeen(name) {
     users[name].lastSeen = Date.now();
     saveUsers();
   }
+}
+
+function updateUserField(name, field, value) {
+  if (!users[name]) return false;
+  const allowed = ['avatar', 'fingerprint', 'isBanned', 'role', 'passwordHash', 'pwdLegacy'];
+  if (!allowed.includes(field)) return false;
+  users[name][field] = value;
+  saveUsers();
+  return true;
 }
 
 function updateUser(name, updates) {
@@ -203,6 +213,7 @@ module.exports = {
   getOrCreateUser,
   updateLastSeen,
   updateUser,
+  updateUserField,
   setUserFingerprint,
   isNameBanned,
   isFingerprintBanned,

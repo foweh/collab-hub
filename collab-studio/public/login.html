@@ -360,13 +360,14 @@
 
     loadUserNameHistory();
 
-    socket.on('login-success', ({ userName, isAdmin, hasPassword, role, token }) => {
+    socket.on('login-success', ({ userName, isAdmin, hasPassword, role, token, avatar }) => {
       // 保存登录凭证到 sessionStorage（会话级，关闭标签即清除）
       sessionStorage.setItem('collab-auth', JSON.stringify({
         name: userName,
         isAdmin: isAdmin,
         token: token || '',
-        role: role || (isAdmin ? 'editor' : 'commenter')
+        role: role || (isAdmin ? 'editor' : 'commenter'),
+        avatar: avatar || ''
       }));
       // 保存用户名到 localStorage 以便下次自动填入
       localStorage.setItem('collab-user-name', userName);

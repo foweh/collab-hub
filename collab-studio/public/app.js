@@ -381,6 +381,19 @@ let myName = savedAuth ? savedAuth.name : '';
 let isAdmin = savedAuth ? savedAuth.isAdmin : false;
 let myRole = savedAuth ? (savedAuth.role || (isAdmin ? 'editor' : 'commenter')) : 'commenter';
 let myToken = savedAuth ? savedAuth.token : '';
+let myAvatar = savedAuth ? (savedAuth.avatar || '') : '';
+
+// 初始化头像
+function updateAvatar(src) {
+  const img = document.getElementById('user-avatar');
+  if (img) {
+    img.src = src ? src : '/default-avatar.png';
+    img.onerror = () => { img.src = '/default-avatar.png'; };
+  }
+  const preview = document.getElementById('settings-avatar-preview');
+  if (preview) preview.src = src ? src : '/default-avatar.png';
+}
+if (myAvatar) updateAvatar('/avatars/' + myAvatar);
 
 socket.on('connect', () => {
   if (myName) {
@@ -388,9 +401,17 @@ socket.on('connect', () => {
   }
 });
 
-socket.on('login-success', ({ userName, isAdmin: admin, role }) => {
+socket.on('login-success', ({ userName, isAdmin: admin, role, avatar }) => {
   isAdmin = admin;
   myRole = role || (isAdmin ? 'editor' : 'commenter');
+  if (avatar) {
+    myAvatar = avatar;
+    updateAvatar('/avatars/' + avatar);
+    // 更新 sessionStorage
+    const auth = JSON.parse(sessionStorage.getItem('collab-auth') || '{}');
+    auth.avatar = avatar;
+    sessionStorage.setItem('collab-auth', JSON.stringify(auth));
+  }
   app.style.display = 'flex';
   const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
   selfBadge.textContent = `${roleLabel} ${userName}`;
@@ -1342,9 +1363,143 @@ function initUI() {
   }
   
   renderProjects();
+
+  // ── 设置初始化 ──
+  setupSettings();
 }
 
-// ─── 帮助按钮 ──────────────────────────────────────────
+// ─── 设置功能 ───────────────────────────────────────────
+function setupSettings() {
+  // 设置导航切换
+  document.querySelectorAll('.settings-nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.settings-nav-btn').forEach(b => {
+        b.style.color = 'var(--text-secondary)';
+        b.style.background = 'transparent';
+      });
+      btn.style.color = 'var(--text)';
+      btn.style.background = 'var(--surface2)';
+      document.querySelectorAll('.settings-section').forEach(s => s.style.display = 'none');
+      const section = document.getElementById('settings-' + btn.dataset.section);
+      if (section) section.style.display = 'block';
+    });
+  });
+
+  // 头像上传按钮
+  const avatarBtn = document.getElementById('avatar-upload-btn');
+  const avatarInput = document.getElementById('avatar-file-input');
+  const avatarStatus = document.getElementById('avatar-upload-status');
+  if (avatarBtn && avatarInput) {
+    avatarBtn.addEventListener('click', () => avatarInput.click());
+    avatarInput.addEventListener('change', async () => {
+      const file = avatarInput.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        if (avatarStatus) avatarStatus.textContent = '❌ 图片过大，最大2MB';
+        return;
+      }
+      avatarStatus.textContent = '⏳ 上传中...';
+      // 转为 base64
+      const reader = new FileReader();
+      reader.onload = async () => {
+        avatarStatus.textContent = '⏳ 保存中...';
+        // 通过 HTTP POST 上传
+        try {
+          const res = await fetch('/api/upload-avatar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: myName, imageData: reader.result })
+          });
+          const data = await res.json();
+          if (data.error) {
+            avatarStatus.textContent = '❌ ' + data.error;
+          } else if (data.ok) {
+            avatarStatus.textContent = '✅ 头像已更新';
+            myAvatar = data.url.replace('/avatars/', '');
+            updateAvatar(data.url);
+            // 更新 sessionStorage
+            const auth = JSON.parse(sessionStorage.getItem('collab-auth') || '{}');
+            auth.avatar = myAvatar;
+            sessionStorage.setItem('collab-auth', JSON.stringify(auth));
+          }
+        } catch (e) {
+          avatarStatus.textContent = '❌ 上传失败';
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 更改名称
+  const nameInput = document.getElementById('settings-name-input');
+  const nameSave = document.getElementById('settings-name-save');
+  const nameStatus = document.getElementById('settings-name-status');
+  if (nameInput && nameSave) {
+    nameInput.value = myName;
+    nameSave.addEventListener('click', () => {
+      const newName = nameInput.value.trim();
+      if (!newName || newName === myName) return;
+      nameStatus.textContent = '⏳ 提交中...';
+      socket.emit('update-profile', { field: 'name', value: newName });
+    });
+  }
+
+  // 更改密码
+  const pwdOld = document.getElementById('settings-pwd-old');
+  const pwdNew = document.getElementById('settings-pwd-new');
+  const pwdConfirm = document.getElementById('settings-pwd-confirm');
+  const pwdSave = document.getElementById('settings-pwd-save');
+  const pwdStatus = document.getElementById('settings-pwd-status');
+  if (pwdSave) {
+    pwdSave.addEventListener('click', () => {
+      if (!pwdOld.value || !pwdNew.value || !pwdConfirm.value) {
+        pwdStatus.textContent = '❌ 请填写所有字段';
+        return;
+      }
+      if (pwdNew.value.length < 3) {
+        pwdStatus.textContent = '❌ 新密码至少3位';
+        return;
+      }
+      if (pwdNew.value !== pwdConfirm.value) {
+        pwdStatus.textContent = '❌ 两次密码不一致';
+        return;
+      }
+      pwdStatus.textContent = '⏳ 提交中...';
+      socket.emit('update-profile', { field: 'password', value: { oldPassword: pwdOld.value, newPassword: pwdNew.value } });
+    });
+  }
+}
+
+// ─── 资料更新回应 ──────────────────────────────────────
+socket.on('profile-updated', ({ field, value }) => {
+  if (field === 'name') {
+    myName = value;
+    // 更新 sessionStorage
+    const auth = JSON.parse(sessionStorage.getItem('collab-auth') || '{}');
+    auth.name = value;
+    sessionStorage.setItem('collab-auth', JSON.stringify(auth));
+    // 更新界面
+    const status = document.getElementById('settings-name-status');
+    if (status) status.textContent = '✅ 名称已更新为: ' + value;
+    document.getElementById('settings-name-input').value = value;
+    const roleLabel = isAdmin ? '👑' : (myRole === 'editor' ? '✏️' : (myRole === 'commenter' ? '💬' : '👁️'));
+    selfBadge.textContent = `${roleLabel} ${value}`;
+    showToast('✅ 名称已更新为: ' + value);
+  } else if (field === 'password') {
+    const status = document.getElementById('settings-pwd-status');
+    if (status) status.textContent = '✅ 密码已修改，下次登录生效';
+    document.getElementById('settings-pwd-old').value = '';
+    document.getElementById('settings-pwd-new').value = '';
+    document.getElementById('settings-pwd-confirm').value = '';
+    showToast('✅ 密码已修改');
+  }
+});
+
+socket.on('profile-update-error', (msg) => {
+  const status = document.getElementById('settings-name-status') || document.getElementById('settings-pwd-status');
+  if (status) status.textContent = '❌ ' + msg;
+  showToast('❌ ' + msg);
+});
 const helpBtn = document.getElementById('help-btn');
 if (helpBtn) {
   helpBtn.addEventListener('click', function() {

@@ -1104,6 +1104,100 @@ body {
   .nav-label { display: none; }
 }
 
+/* ─── 手机端适配（不影响桌面端） ─── */
+@media (max-width: 768px) {
+  /* 顶栏 */
+  #topbar { flex-wrap: wrap; gap: 4px; padding: 4px 8px; min-height: 40px; }
+  #topbar .toolbar-btn { font-size: 11px; padding: 3px 8px; }
+  #topbar h1 { font-size: 14px; }
+  .topbar-left, .topbar-right { gap: 4px; }
+
+  /* 左侧导航 - 变为极窄条 */
+  #left-nav { width: 44px; padding: 4px 0; }
+  .nav-btn { width: 34px; height: 34px; margin: 1px auto; border-radius: 6px; }
+  .nav-icon { font-size: 14px; }
+  .nav-label { display: none; }
+
+  /* 右侧面板 - 完全隐藏 */
+  #right-sidebar { display: none; }
+
+  /* 内容区 - 占满剩余宽度 */
+  #content-area { padding: 0; }
+
+  /* 模块面板 */
+  .module-panel { padding: 8px; }
+
+  /* 项目网格 - 单列或两列 */
+  .project-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .project-card { padding: 10px; }
+  .project-card .p-name { font-size: 13px; }
+  .project-card .p-meta { font-size: 10px; }
+  .project-card .p-type { font-size: 22px; }
+
+  /* 创建按钮区 */
+  .create-buttons { gap: 6px; }
+  .create-btn { width: 44px; height: 44px; font-size: 18px; }
+  .create-label { font-size: 9px; }
+
+  /* 管理员表格 - 横向滚动 */
+  .admin-section { overflow-x: auto; }
+  .admin-table { font-size: 11px; }
+  .admin-table th, .admin-table td { padding: 4px 6px; }
+
+  /* 各类弹窗 */
+  .modal-card, .create-card, .login-card, .chat-modal, .forgot-card { width: 92%; max-width: 92%; margin: 10px auto; padding: 16px; }
+  .create-card { width: 92%; }
+
+  /* 剧本编辑器 */
+  #script-editor { padding: 4px; }
+  .act-section { margin: 4px 0; }
+  .scene-section { padding: 4px; }
+  .d-line textarea { font-size: 12px; }
+
+  /* 思维导图 */
+  #mindmap-toolbar { flex-wrap: wrap; gap: 2px; padding: 4px; }
+  #mindmap-toolbar .tool-btn { font-size: 11px; padding: 2px 6px; }
+
+  /* 故事编辑器 */
+  #story-layout { flex-direction: column; }
+  #story-chapter-list { width: 100%; max-height: 120px; border-right: none; border-bottom: 1px solid var(--border); }
+
+  /* 分镜 iframe */
+  #panel-storyboard iframe { height: calc(100vh - 120px); }
+
+  /* 面包屑导航 */
+  #breadcrumb { flex-wrap: wrap; gap: 4px; padding: 4px 8px; font-size: 11px; }
+  .crumb-item { font-size: 11px; }
+  .create-buttons-inline { flex-wrap: wrap; gap: 2px; }
+  .create-buttons-inline .create-btn { width: 36px; height: 36px; font-size: 14px; }
+
+  /* 设备网格 */
+  .device-grid { grid-template-columns: 1fr; gap: 6px; }
+
+  /* 收件箱/消息 */
+  #admin-msgs { max-height: 120px; font-size: 11px; }
+
+  /* 通用调整 */
+  .panel-header h2 { font-size: 14px; }
+  .panel-actions { gap: 4px; flex-wrap: wrap; }
+  input, select, textarea { font-size: 14px; } /* 防止iOS自动缩放 */
+}
+
+/* 小屏手机 */
+@media (max-width: 480px) {
+  .project-grid { grid-template-columns: 1fr; }
+  .create-buttons { justify-content: center; }
+  #topbar h1 { font-size: 12px; }
+  #left-nav { width: 38px; }
+  .nav-btn { width: 30px; height: 30px; }
+  .nav-icon { font-size: 12px; }
+  .module-panel { padding: 4px; }
+  .project-card { padding: 8px; }
+  .project-card .p-name { font-size: 12px; }
+  .admin-table { font-size: 10px; }
+  .admin-table th, .admin-table td { padding: 3px 4px; white-space: nowrap; }
+}
+
 /* ─── 登录弹窗 ─── */
 .login-card {
   background: var(--surface);

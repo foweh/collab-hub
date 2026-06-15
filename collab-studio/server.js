@@ -98,6 +98,13 @@ function saveFenjingState(state) { saveJSON(FENJING_FILE, state); }
 let annotations = loadJSON(ANNOTATIONS_FILE, []);
 function saveAnnotations() { saveJSON(ANNOTATIONS_FILE, annotations); }
 
+// ─── 聊天历史存储 ────────────────────────────────────────
+const chatHistory = new Map(); // conversationKey → [{ from, text, time }]
+function getChatKey(userA, userB) {
+  return [userA, userB].sort().join(':');
+}
+const MAX_CHAT_PER_CONV = 200;
+
 // ─── 对等节点 ────────────────────────────────────────────
 const peers = new Map(); // serverId → { socket, name, ip, port, connected, note }
 
@@ -477,6 +484,7 @@ function validateEventPayload(eventName, data) {
       return { valid: true };
     
     case 'user-message-to-user':
+    case 'chat-send':
       if (!validateString(data.target, MAX_NAME_LEN) || !data.target.trim())
         return { valid: false, error: '目标用户无效' };
       if (!validateString(data.text, 500))
@@ -1182,11 +1190,51 @@ io.on('connection', (socket) => {
     if (!checkRateLimit(`msgUser:${socket.userName}`, 10, 60000)) return;
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
+    // 存储到历史
+    const key = getChatKey(socket.userName, target);
+    if (!chatHistory.has(key)) chatHistory.set(key, []);
+    const history = chatHistory.get(key);
+    history.push(msg);
+    if (history.length > MAX_CHAT_PER_CONV) history.splice(0, history.length - MAX_CHAT_PER_CONV);
+    // 转发给目标（兼容新旧客户端）
     for (const [sid, u] of onlineUsers) {
-      if (u.name === target) { io.to(sid).emit('user-incoming-msg', msg); break; }
+      if (u.name === target) {
+        io.to(sid).emit('user-incoming-msg', msg);
+        io.to(sid).emit('chat-message', msg);
+        break;
+      }
     }
     addLog(socket.id, socket.userName, 'sent message to', 'system', target);
   });
+
+  // ── 私聊：客户端 chat-send（对齐客户端事件） ──
+  socket.on('chat-send', ({ target, text }) => {
+    if (!validateEventPayload('chat-send', { target, text }).valid) return;
+    if (!socket.userName || !target || !text) return;
+    if (!checkRateLimit(`msgUser:${socket.userName}`, 10, 60000)) return;
+    const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
+    if (!msg.text) return;
+    // 存储到历史
+    const key = getChatKey(socket.userName, target);
+    if (!chatHistory.has(key)) chatHistory.set(key, []);
+    const history = chatHistory.get(key);
+    history.push(msg);
+    if (history.length > MAX_CHAT_PER_CONV) history.splice(0, history.length - MAX_CHAT_PER_CONV);
+    // 转发给目标（客户端已在 sendChat 中本地显示，不需回发给自己）
+    for (const [sid, u] of onlineUsers) {
+      if (u.name === target) { io.to(sid).emit('chat-message', msg); break; }
+    }
+    addLog(socket.id, socket.userName, 'sent message to', 'system', target);
+  });
+
+  // ── 私聊：获取历史 ──
+  socket.on('chat-get-history', ({ with: targetName }) => {
+    if (!socket.userName || !targetName) return;
+    const key = getChatKey(socket.userName, targetName);
+    const messages = chatHistory.get(key) || [];
+    socket.emit('chat-history', { with: targetName, messages });
+  });
+
   socket.on('check-message-permission', ({ target }) => {
     if (!socket.userName) return;
     const key = `${socket.userName}→${target}`;

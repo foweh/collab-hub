@@ -215,7 +215,7 @@ function renderAdminUsers(users) {
 // 实时更新管理员表格的在线状态
 function refreshAdminStatus() {
   if (!adminUsersCache.length) return;
-  const onlineSet = new Set((window.onlineUsers || []).map(u => u.name));
+  const onlineSet = new Set((onlineUsers || []).map(u => u.name));
   adminUsersCache.forEach(u => {
     const row = document.querySelector(`#admin-users-tbody tr[data-username="${esc(u.name)}"]`);
     if (!row) return;

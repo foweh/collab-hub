@@ -212,9 +212,9 @@ socket.on('chat-message', ({ from, text, time }) => {
     </div>`;
     msgsEl.scrollTop = msgsEl.scrollHeight;
   }
-  // 通知提示
+  // 通知提示 - 使用美观弹窗
   if (chatWith !== from && from !== myName) {
-    showToast('💬 ' + from + ': ' + text);
+    showNotification(from, text);
   }
 });
 
@@ -305,6 +305,56 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 3000);
 }
+
+// ─── 美观消息通知弹窗 ─────────────────────────────────
+let notifTimer = null;
+function showNotification(from, text) {
+  let container = document.getElementById('notif-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'notif-container';
+    container.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:10000;display:flex;flex-direction:column;gap:8px;max-width:360px;width:100%;pointer-events:none';
+    document.body.appendChild(container);
+  }
+  const card = document.createElement('div');
+  const initial = from.charAt(0).toUpperCase();
+  const colors = ['#4f46e5','#0891b2','#059669','#d97706','#dc2626','#7c3aed','#db2777','#2563eb'];
+  const colorIdx = from.length % colors.length;
+  const bgColor = colors[colorIdx];
+  const shortText = text.length > 40 ? text.slice(0, 40) + '...' : text;
+  card.style.cssText = 'pointer-events:auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;box-shadow:0 4px 20px rgba(0,0,0,0.12);display:flex;align-items:center;gap:10px;cursor:pointer;transition:all 0.3s ease;transform:translateX(120%);opacity:0;animation:notifIn 0.35s ease forwards';
+  card.innerHTML = `
+    <div style="width:36px;height:36px;border-radius:50%;background:${bgColor};color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0">${initial}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:600;color:#0f172a">${esc(from)}</div>
+      <div style="font-size:12px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(shortText)}</div>
+    </div>
+    <div style="font-size:10px;color:#94a3b8;flex-shrink:0">回复</div>
+  `;
+  card.addEventListener('click', () => {
+    card.style.transform = 'translateX(120%)';
+    card.style.opacity = '0';
+    setTimeout(() => card.remove(), 300);
+    clearTimeout(notifTimer);
+    // 打开聊天窗口
+    openChat(from);
+  });
+  // 4秒后自动消失
+  container.appendChild(card);
+  clearTimeout(notifTimer);
+  notifTimer = setTimeout(() => {
+    card.style.transform = 'translateX(120%)';
+    card.style.opacity = '0';
+    setTimeout(() => card.remove(), 300);
+  }, 4000);
+}
+
+// ─── 动画样式注入 ─────────────────────────────────────
+(function injectNotifCSS() {
+  const style = document.createElement('style');
+  style.textContent = `@keyframes notifIn{0%{transform:translateX(120%);opacity:0}100%{transform:translateX(0);opacity:1}}@keyframes notifOut{0%{transform:translateX(0);opacity:1}100%{transform:translateX(120%);opacity:0}}`;
+  document.head.appendChild(style);
+})();
 
 let adminUsersCache = []; // 缓存用户列表用于实时更新在线状态
 

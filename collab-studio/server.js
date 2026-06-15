@@ -98,12 +98,13 @@ function saveFenjingState(state) { saveJSON(FENJING_FILE, state); }
 let annotations = loadJSON(ANNOTATIONS_FILE, []);
 function saveAnnotations() { saveJSON(ANNOTATIONS_FILE, annotations); }
 
-// ─── 聊天历史存储 ────────────────────────────────────────
-const chatHistory = new Map(); // conversationKey → [{ from, text, time }]
+// ─── 聊天历史存储（持久化）───────────────────────────────
+const CHAT_HISTORY_FILE = path.join(DATA_DIR, 'chat-history.json');
+let chatHistory = loadJSON(CHAT_HISTORY_FILE, {}); // { conversationKey: [{ from, text, time }] }
+function saveChatHistory() { saveJSON(CHAT_HISTORY_FILE, chatHistory); }
 function getChatKey(userA, userB) {
   return [userA, userB].sort().join(':');
 }
-const MAX_CHAT_PER_CONV = 200;
 
 // ─── 对等节点 ────────────────────────────────────────────
 const peers = new Map(); // serverId → { socket, name, ip, port, connected, note }
@@ -1192,10 +1193,9 @@ io.on('connection', (socket) => {
     if (!msg.text) return;
     // 存储到历史
     const key = getChatKey(socket.userName, target);
-    if (!chatHistory.has(key)) chatHistory.set(key, []);
-    const history = chatHistory.get(key);
-    history.push(msg);
-    if (history.length > MAX_CHAT_PER_CONV) history.splice(0, history.length - MAX_CHAT_PER_CONV);
+    if (!chatHistory[key]) chatHistory[key] = [];
+    chatHistory[key].push(msg);
+    saveChatHistory();
     // 转发给目标（兼容新旧客户端）
     for (const [sid, u] of onlineUsers) {
       if (u.name === target) {
@@ -1226,10 +1226,9 @@ io.on('connection', (socket) => {
     if (!msg.text) return;
     // 存储到历史
     const key = getChatKey(socket.userName, target);
-    if (!chatHistory.has(key)) chatHistory.set(key, []);
-    const history = chatHistory.get(key);
-    history.push(msg);
-    if (history.length > MAX_CHAT_PER_CONV) history.splice(0, history.length - MAX_CHAT_PER_CONV);
+    if (!chatHistory[key]) chatHistory[key] = [];
+    chatHistory[key].push(msg);
+    saveChatHistory();
     // 转发给目标（客户端已在 sendChat 中本地显示，不需回发给自己）
     for (const [sid, u] of onlineUsers) {
       if (u.name === target) { io.to(sid).emit('chat-message', msg); break; }
@@ -1241,7 +1240,7 @@ io.on('connection', (socket) => {
   socket.on('chat-get-history', ({ with: targetName }) => {
     if (!socket.userName || !targetName) return;
     const key = getChatKey(socket.userName, targetName);
-    const messages = chatHistory.get(key) || [];
+    const messages = chatHistory[key] || [];
     socket.emit('chat-history', { with: targetName, messages });
   });
 

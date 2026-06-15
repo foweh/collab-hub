@@ -502,6 +502,39 @@ function renderOnlineUsers() {
   if (countEl) countEl.textContent = '(' + onlineUsers.length + ')';
   const headerCount = document.getElementById('online-count-header');
   if (headerCount) headerCount.textContent = onlineUsers.length;
+  // 同时刷新头像叠放
+  renderCollabAvatars();
+}
+
+// ─── 协作者头像叠放 ───────────────────────────────────
+function renderCollabAvatars() {
+  const container = document.getElementById('collab-avatars');
+  if (!container) return;
+  // 只在文件夹内显示
+  const inFolder = currentFolderPath.length > 0;
+  if (!inFolder || !onlineUsers.length) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = 'flex';
+  const maxShow = 3;
+  const showUsers = onlineUsers.slice(0, maxShow);
+  const remainder = onlineUsers.length - maxShow;
+  let html = '';
+  showUsers.forEach(u => {
+    const isOnline = true;
+    html += `<div class="collab-avatar ${isOnline ? 'online' : ''}" style="position:relative;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface2)">
+      <span class="collab-tooltip">${esc(u.name)}</span>
+      ${esc(u.name.charAt(0).toUpperCase())}
+    </div>`;
+  });
+  if (remainder > 0) {
+    html += `<div class="collab-avatar-text" style="position:relative">
+      <span class="collab-tooltip">还有 ${remainder} 人</span>
+      +${remainder}
+    </div>`;
+  }
+  container.innerHTML = html;
 }
 
 // ─── 设备列表 ───────────────────────────────────────────
@@ -752,6 +785,7 @@ if (emptyTrashBtn) {
 // ─── 项目渲染 ───────────────────────────────────────────
 function renderProjects() {
   projectList.innerHTML = '';
+  renderCollabAvatars();
 
   const currentFolderId = currentFolderPath.length > 0 
     ? currentFolderPath[currentFolderPath.length - 1].id 

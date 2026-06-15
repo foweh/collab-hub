@@ -1208,7 +1208,10 @@ io.on('connection', (socket) => {
   });
 
   // ── 私聊：客户端 chat-send（对齐客户端事件） ──
-  socket.on('chat-send', ({ target, text }) => {
+  socket.on('chat-send', (data) => {
+    // 兼容客户端传的 to 和服务端用的 target
+    const target = data.target || data.to;
+    const text = data.text;
     if (!validateEventPayload('chat-send', { target, text }).valid) return;
     if (!socket.userName || !target || !text) return;
     if (!checkRateLimit(`msgUser:${socket.userName}`, 10, 60000)) return;

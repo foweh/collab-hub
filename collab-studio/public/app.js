@@ -240,6 +240,16 @@ function sendChat() {
 }
 
 // 消息权限申请回应
+socket.on('request-sent', (msg) => {
+  showToast('📤 ' + msg);
+});
+socket.on('toast', ({ msg, type }) => {
+  if (type === 'error') showToast('❌ ' + msg);
+  else showToast(msg);
+});
+socket.on('no-permission', (msg) => {
+  showToast('❌ ' + msg);
+});
 socket.on('message-permission-granted', ({ target }) => {
   if (target) {
     openChat(target);
@@ -268,6 +278,7 @@ socket.on('admin-permission-request', (req) => {
     const div = document.createElement('div');
     div.className = 'approve-item';
     div.dataset.from = req.from;
+    div.dataset.target = req.target;
     div.innerHTML = `<span>${esc(req.from)} 请求向 ${esc(req.target)} 发消息</span>
       <button class="tool-btn" onclick="approveMsgReq('${esc(req.from)}', true)">✅ 批准</button>
       <button class="tool-btn danger" onclick="approveMsgReq('${esc(req.from)}', false)">❌ 拒绝</button>`;
@@ -286,7 +297,7 @@ socket.on('admin-msg-requests-list', (requests) => {
   } else {
     container.innerHTML = requests.map(r => {
       const time = new Date(r.time).toLocaleString();
-      return `<div class="approve-item" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      return `<div class="approve-item" data-from="${esc(r.from)}" data-target="${esc(r.target)}" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
         <span style="flex:1;font-size:12px">${esc(r.from)} → ${esc(r.target)} <span style="color:var(--text-dim);font-size:10px">${time}</span></span>
         <button class="tool-btn" onclick="approveMsgReq('${esc(r.from)}', true)">✅ 批准</button>
         <button class="tool-btn danger" onclick="approveMsgReq('${esc(r.from)}', false)">❌ 拒绝</button>
@@ -296,12 +307,17 @@ socket.on('admin-msg-requests-list', (requests) => {
 });
 
 function approveMsgReq(from, approve) {
-  // 从 DOM 中获取 target 信息
+  // 优先从 data-target 获取
   const item = document.querySelector(`.approve-item[data-from="${esc(from)}"]`);
-  const targetEl = item ? item.querySelector('span') : null;
-  const targetText = targetEl ? targetEl.textContent : '';
-  const targetMatch = targetText.match(/请求向 (.+?) 发消息/);
-  const target = targetMatch ? targetMatch[1] : '';
+  let target = item ? item.dataset.target : '';
+  // 降级：从文本解析（兼容旧数据）
+  if (!target && item) {
+    const targetEl = item.querySelector('span');
+    const targetText = targetEl ? targetEl.textContent : '';
+    const targetMatch = targetText.match(/请求向 (.+?) 发消息/);
+    target = targetMatch ? targetMatch[1] : '';
+  }
+  if (!target) { showToast('❌ 无法解析目标用户，请重新申请'); return; }
   socket.emit('admin-approve-permission', { from, target, approve });
   // 移除申请条目
   document.querySelectorAll('.approve-item').forEach(el => {

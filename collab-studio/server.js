@@ -1212,6 +1212,13 @@ io.on('connection', (socket) => {
     if (!validateEventPayload('chat-send', { target, text }).valid) return;
     if (!socket.userName || !target || !text) return;
     if (!checkRateLimit(`msgUser:${socket.userName}`, 10, 60000)) return;
+    // 权限检查：管理员可发，或已被授予权限
+    const isAdmin = socket.isAdmin || false;
+    const permKey = `${socket.userName}→${target}`;
+    if (!isAdmin && !messagePermissions[permKey]) {
+      socket.emit('no-permission', '你还没有给此用户发消息的权限，请先申请');
+      return;
+    }
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
     // 存储到历史
@@ -1245,12 +1252,18 @@ io.on('connection', (socket) => {
     const from = socket.userName;
     const key = `${from}→${target}`;
     if (messagePermissions[key]) { socket.emit('message-permission-granted', { target }); return; }
+    // 给申请者确认
+    socket.emit('request-sent', '消息权限申请已发送给管理员');
     for (const [sid, u] of onlineUsers) {
       if (u.isAdmin) io.to(sid).emit('admin-permission-request', { from, target });
     }
   });
   socket.on('admin-approve-permission', ({ from, target, approve }) => {
     if (!socket.isAdmin) return;
+    if (!from || !target) {
+      socket.emit('toast', { msg: '审批失败：缺少目标用户信息', type: 'error' });
+      return;
+    }
     const key = `${from}→${target}`;
     if (approve) {
       messagePermissions[key] = true;

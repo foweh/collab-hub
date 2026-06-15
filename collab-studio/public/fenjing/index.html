@@ -105,11 +105,12 @@
 
         fenjingSocket.on('fenjing:state-sync', (state) => {
           localShots = state.shots || [];
-          console.log('[绘画] 收到初始状态，shots:', localShots.length);
+          console.log('[绘画] 收到初始状态，shots:', localShots.length, '首镜ID:', localShots[0]?.id);
         });
 
         fenjingSocket.on('fenjing:shots-update', (shots) => {
           localShots = shots;
+          console.log('[绘画] 收到 shots-update, 数量:', shots.length, '首镜 image:', typeof shots[0]?.image, shots[0]?.image ? '有' : '无');
           // 刷新所有镜头行的绘图按钮状态
           document.querySelectorAll('.shot-row').forEach(refreshShotRow);
         });
@@ -200,16 +201,27 @@
       // ── 保存绘画到镜头 ──
       const drawSaveShotBtn = document.getElementById('drawSaveShot');
       drawSaveShotBtn.addEventListener('click', () => {
-        if (!currentShotId) return;
+        if (!currentShotId) { console.warn('[绘画] 保存失败: currentShotId 为空'); return; }
+        if (canvas.width === 0 || canvas.height === 0) {
+          console.warn('[绘画] 保存失败: 画布未初始化');
+          return;
+        }
         const dataUrl = canvas.toDataURL('image/png');
+        console.log('[绘画] 保存到镜头', currentShotId, '图片大小:', (dataUrl.length / 1024).toFixed(0) + 'KB');
         // 更新本地 shots 副本
         const shot = localShots.find(s => s.id === currentShotId);
         if (shot) {
           shot.image = dataUrl;
+          console.log('[绘画] localShots 已更新, 已找到镜头:', shot.number);
           // 通过 Socket.IO 发送更新
           if (fenjingSocket && fenjingSocket.connected) {
             fenjingSocket.emit('fenjing:shots-update', localShots);
+            console.log('[绘画] 已发送 fenjing:shots-update');
+          } else {
+            console.warn('[绘画] 保存失败: fenjingSocket 未连接');
           }
+        } else {
+          console.warn('[绘画] 保存失败: localShots 中未找到镜头', currentShotId);
         }
         // 关闭绘画面板
         closeDrawPanel();

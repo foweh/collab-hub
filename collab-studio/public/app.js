@@ -240,23 +240,30 @@ function sendChat() {
 }
 
 // 消息权限申请回应
-socket.on('msg-permission-granted', ({ adminName }) => {
+socket.on('message-permission-granted', ({ target }) => {
+  if (target) {
+    openChat(target);
+    showToast('✅ 权限已批准，正在打开对话');
+  }
+});
+socket.on('message-permission-denied', ({ target }) => {
+  showToast('❌ 权限申请被拒绝');
+});
+socket.on('msg-permission-granted', ({ adminName, target }) => {
   showToast('✅ ' + adminName + ' 已批准你的消息权限');
+  if (target) openChat(target);
 });
 socket.on('msg-permission-denied', ({ adminName }) => {
   showToast('❌ ' + adminName + ' 拒绝了你的消息权限申请');
 });
-socket.on('admin-msg-permission-request', (req) => {
-  // 管理员收到新申请
+socket.on('admin-permission-request', (req) => {
+  // 管理员收到新请求（来自 request-message-permission 流程）
   const container = document.getElementById('admin-msg-requests');
   if (container) {
-    // 显示父级 section
     const section = document.getElementById('admin-msg-permissions');
     if (section) section.style.display = '';
-    // 移除"暂无申请"
     const emptyMsg = container.querySelector('.status-none');
     if (emptyMsg) emptyMsg.remove();
-    // 检查是否已存在同一申请
     if (container.querySelector(`[data-from="${esc(req.from)}"]`)) return;
     const div = document.createElement('div');
     div.className = 'approve-item';
@@ -289,7 +296,13 @@ socket.on('admin-msg-requests-list', (requests) => {
 });
 
 function approveMsgReq(from, approve) {
-  socket.emit('admin-approve-msg-permission', { from, approve });
+  // 从 DOM 中获取 target 信息
+  const item = document.querySelector(`.approve-item[data-from="${esc(from)}"]`);
+  const targetEl = item ? item.querySelector('span') : null;
+  const targetText = targetEl ? targetEl.textContent : '';
+  const targetMatch = targetText.match(/请求向 (.+?) 发消息/);
+  const target = targetMatch ? targetMatch[1] : '';
+  socket.emit('admin-approve-permission', { from, target, approve });
   // 移除申请条目
   document.querySelectorAll('.approve-item').forEach(el => {
     if (el.textContent.includes(from)) el.remove();
@@ -739,18 +752,8 @@ function renderOnlineUsers() {
         if (isAdmin) {
           openChat(targetName);
         } else {
-          // 非管理员：先检查是否已有权限
-          socket.emit('check-message-permission', { target: targetName });
-          socket.once('message-permission-status', ({ permitted }) => {
-            if (permitted) {
-              openChat(targetName);
-            } else {
-              if (confirm('需要向管理员申请消息权限。是否发送申请？')) {
-                socket.emit('admin-request-msg-permission', { targetName });
-                showToast('📨 已向管理员发送申请');
-              }
-            }
-          });
+          // 发给服务器判断权限
+          socket.emit('request-message-permission', { target: targetName });
         }
       });
     });

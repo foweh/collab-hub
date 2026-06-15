@@ -1080,9 +1080,9 @@ io.on('connection', (socket) => {
           const key = `${from}→${req.target}`;
           messagePermissions[key] = true;
           saveMsgPermissions();
-          io.to(sid).emit('msg-permission-granted', { adminName: socket.userName, target: req.target });
+          io.to(sid).emit('message-permission-granted', { target: req.target });
         } else {
-          io.to(sid).emit('msg-permission-denied', { adminName: socket.userName });
+          io.to(sid).emit('message-permission-denied', {});
         }
       }
     }

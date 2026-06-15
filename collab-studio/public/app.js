@@ -514,6 +514,31 @@ function switchModule(moduleName) {
   }
 }
 
+// ─── 返回文件夹 ─────────────────────────────────────────
+function goBackToFolder() {
+  navBtns.forEach(b => b.classList.remove('active'));
+  panels.forEach(p => p.classList.remove('active'));
+
+  const projectsPanel = document.getElementById('panel-projects');
+  const projectsBtn = document.querySelector('.nav-btn[data-module="projects"]');
+  const nav = document.querySelector('.nav');
+  const toolbar = document.querySelector('.toolbar');
+
+  if (projectsBtn) projectsBtn.classList.add('active');
+  if (projectsPanel) projectsPanel.classList.add('active');
+  if (nav) nav.style.display = '';
+  if (toolbar) toolbar.style.display = '';
+  renderProjects();
+}
+
+// ─── 返回按钮绑定 ───────────────────────────────────────
+['script', 'mindmap', 'story', 'sb', 'admin'].forEach(id => {
+  const btn = document.getElementById(`${id}-back`);
+  if (btn) btn.addEventListener('click', goBackToFolder);
+});
+const pdBack = document.getElementById('pd-back');
+if (pdBack) pdBack.addEventListener('click', goBackToFolder);
+
 // ─── 新建文件夹按钮 ──────────────────────────────────────
 console.log('正在初始化新建文件夹按钮...');
 const newProjectBtn = document.getElementById('new-project-btn');

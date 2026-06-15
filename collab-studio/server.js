@@ -863,6 +863,7 @@ io.on('connection', (socket) => {
     if (!socket.isAdmin) return;
     const onlineNames = new Set();
     for (const [, u] of onlineUsers) onlineNames.add(u.name);
+    console.log('[admin] onlineUsers size:', onlineUsers.size, 'onlineNames:', [...onlineNames]);
     const list = Object.entries(users).map(([name, u]) => ({
       name, isAdmin: u.isAdmin, hasPassword: !!u.passwordHash,
       isBanned: u.isBanned, fingerprint: u.fingerprint || '',
@@ -870,6 +871,7 @@ io.on('connection', (socket) => {
       online: onlineNames.has(name),
       lastSeen: u.lastSeen || 0,
     }));
+    console.log('[admin] users list:', list.map(u => ({ name: u.name, online: u.online })));
     socket.emit('admin-users-list', list);
   });
   socket.on('admin-change-password', async ({ targetName, newPassword }) => {

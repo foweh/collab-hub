@@ -648,7 +648,7 @@ io.on('connection', (socket) => {
   socket.on('project-add-item', ({ projectId, itemType, itemName, customTypeName }) => {
     const p = projects.find(x => x.id === projectId);
     if (!p) return;
-    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth, projects)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
     // 允许任意类型，支持自定义类型
     const finalItemType = itemType === 'custom' ? (customTypeName || 'custom') : itemType;
     if (!p.data.items) p.data.items = [];
@@ -673,7 +673,7 @@ io.on('connection', (socket) => {
   socket.on('project-remove-item', ({ projectId, itemId }) => {
     const p = projects.find(x => x.id === projectId);
     if (!p || !p.data.items) return;
-    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth, projects)) { socket.emit('project-update-error', '你没有编辑权限'); return; }
     p.data.items = p.data.items.filter(it => it.id !== itemId);
     p.updatedAt = Date.now();
     projectSvc.saveProjects();
@@ -705,7 +705,7 @@ io.on('connection', (socket) => {
     if (!validateString(name, 50) || !name.trim()) { socket.emit('project-update-error', '名称无效'); return; }
     const p = projects.find(x => x.id === id);
     if (!p) return;
-    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有修改权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth, projects)) { socket.emit('project-update-error', '你没有修改权限'); return; }
     if (projects.some(x => x.name === name && x.id !== id && !x.deleted && x.type !== 'folder')) {
       socket.emit('project-update-error', '项目名称已存在');
       return;
@@ -722,7 +722,7 @@ io.on('connection', (socket) => {
     if (!validateString(name, 50) || !name.trim()) { socket.emit('project-update-error', '名称无效'); return; }
     const p = projects.find(x => x.id === projectId);
     if (!p || !p.data.items) return;
-    if (!projectSvc.canEditProject(socket.userName, p, auth)) { socket.emit('project-update-error', '你没有修改权限'); return; }
+    if (!projectSvc.canEditProject(socket.userName, p, auth, projects)) { socket.emit('project-update-error', '你没有修改权限'); return; }
     const item = p.data.items.find(it => it.id === itemId);
     if (!item) return;
     if (p.data.items.some(it => it.type === item.type && it.name === name && it.id !== itemId)) {
@@ -739,7 +739,7 @@ io.on('connection', (socket) => {
   socket.on('project-update', (data) => {
     if (!validateEventPayload('project-update', data).valid) return;
     const p = projects.find(x => x.id === data.id); if (!p) return;
-    if (!projectSvc.canEditProject(socket.userName, p, auth)) {
+    if (!projectSvc.canEditProject(socket.userName, p, auth, projects)) {
       socket.emit('project-update-error', '你没有修改此项目的权限');
       return;
     }

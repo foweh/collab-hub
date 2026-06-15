@@ -50,12 +50,17 @@ function saveProjects() {
 }
 
 // ─── 权限校验（基于 auth） ──────────────────────────────
-function canEditProject(userName, project, auth) {
+function canEditProject(userName, project, auth, allProjects) {
   if (!userName || !auth.getUser(userName)) return false;
   if (auth.isAdmin(userName)) return true;
   if (project.owner === userName) return true;
   if (project.visibility === 'public-edit') return auth.canEdit(userName);
   if (project.visibility === 'public-read') return false;
+  // 检查父文件夹权限
+  if (project.parentId && allProjects) {
+    const parent = allProjects.find(p => p.id === project.parentId);
+    if (parent && parent.visibility === 'public-edit') return auth.canEdit(userName);
+  }
   return false;
 }
 

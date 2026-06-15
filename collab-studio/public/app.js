@@ -819,7 +819,17 @@ function renderProjects() {
     }
   }
 
-  const canAccess = (p) => p.type === 'folder' || isAdmin || p.owner === myName || (p.visibility && p.visibility !== 'private');
+  const canAccess = (p) => {
+    if (p.type === 'folder') return true;
+    if (isAdmin || p.owner === myName) return true;
+    if (p.visibility && p.visibility !== 'private') return true;
+    // 如果父文件夹是公开的，子项目也自动可见
+    if (p.parentId) {
+      const parent = projects.find(pr => pr.id === p.parentId);
+      if (parent && parent.visibility && parent.visibility !== 'private') return true;
+    }
+    return false;
+  };
   visibleProjects = visibleProjects.filter(p => canAccess(p));
 
   if (visibleProjects.length === 0) {

@@ -235,7 +235,6 @@
           // Restore canvas from offscreen (before previous shape preview)
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0);
-          ctx.fillStyle = '#1a1a2e';
           ctx.globalCompositeOperation = 'source-over';
           // Draw shape preview
           drawShape(shapeTool, startX, startY, p.x, p.y, false);
@@ -258,7 +257,6 @@
           // Redraw from offscreen (clean state before preview)
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           if (offscreen.width > 0) ctx.drawImage(offscreen, 0, 0);
-          ctx.fillStyle = '#1a1a2e';
           // Draw final shape
           drawShape(shapeTool, startX, startY, endP.x, endP.y, true);
           // Update offscreen with final result
@@ -494,6 +492,10 @@
         document.querySelectorAll('.h-btn.draw-btn-active').forEach(b => b.classList.remove('draw-btn-active'));
         currentShotId = null;
         currentShotNum = null;
+        // 退出全屏
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        }
       }
 
       document.getElementById('drawBack').addEventListener('click', closeDrawPanel);

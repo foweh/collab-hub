@@ -268,7 +268,7 @@ app.use(express.json({ limit: '3mb' }));
 app.post('/api/upload-avatar', async (req, res) => {
   try {
     const { name, imageData } = req.body;
-    if (!name || !imageData) return res.json({ error: '缺少参数' });
+    if (!name || !validateString(name, 50) || !imageData) return res.json({ error: '缺少参数' });
     if (!users[name]) return res.json({ error: '用户不存在' });
 
     // 频率限制：每天5次
@@ -284,8 +284,14 @@ app.post('/api/upload-avatar', async (req, res) => {
     const buffer = Buffer.from(matches[2], 'base64');
     if (buffer.length > 2 * 1024 * 1024) return res.json({ error: '图片过大，最大2MB' });
 
-    const filename = `avatar_${name}_${Date.now()}.${ext}`;
+    // 清理文件名中的特殊字符，防止路径遍历
+    const safeName = name.replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_');
+    const filename = `avatar_${safeName}_${Date.now()}.${ext}`;
     const filepath = path.join(__dirname, 'public', 'avatars', filename);
+    // 确保路径在 avatars 目录内（防止 path.join 绕过）
+    if (!filepath.startsWith(path.join(__dirname, 'public', 'avatars'))) {
+      return res.json({ error: '文件名无效' });
+    }
     require('fs').writeFileSync(filepath, buffer);
 
     users[name].avatar = filename;
@@ -634,7 +640,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('set-server-name', (name) => {
-    SERVER_NAME = name || SERVER_NAME; socket.userName = SERVER_NAME; broadcastDiscover();
+    if (!validateString(name, 50) || !name.trim()) return;
+    if (!checkRateLimit(`serverRename:${socket.id}`, 1, 600000)) return;
+    SERVER_NAME = name.trim(); socket.userName = SERVER_NAME; broadcastDiscover();
     for (const [sid, p] of peers) {
       if (p && p.socket) p.socket.emit('bridge-msg', { type: 'peer-rename', serverId: SERVER_ID, name: SERVER_NAME });
     }
@@ -648,6 +656,8 @@ io.on('connection', (socket) => {
     else broadcastDiscover();
   });
   socket.on('peer-note', ({ serverId, note }) => {
+    if (!validateString(serverId, 50)) return;
+    if (note && !validateString(note, 200)) return;
     if (peers.has(serverId)) { peers.get(serverId).note = note || ''; broadcastPeers(); }
   });
 
@@ -732,7 +742,7 @@ io.on('connection', (socket) => {
   socket.on('project-create-batch', (data) => {
     if (!socket.userName) return;
     const { name, children } = data;
-    if (!name) return;
+    if (!validateString(name, 50) || !name.trim()) return;
     const folder = { id: uuid().slice(0, 12), type: 'folder', name, data: { children: [] }, createdAt: Date.now(), updatedAt: Date.now(), owner: socket.userName || SERVER_NAME };
     projects.push(folder);
     socket.emit('project-created', folder);
@@ -859,16 +869,19 @@ io.on('connection', (socket) => {
 
   // ── 操作锁 ──
   socket.on('focus-lock', ({ type, id }) => {
+    if (!validateString(type, 50) || !validateString(id, 100)) return;
     const name = socket.userName || SERVER_NAME;
     socket.broadcast.emit('focus-lock', { type, id, user: name });
     broadcastToPeers({ type: 'focus-lock', lockType: type, lockId: id, user: name }, null);
   });
   socket.on('focus-release', ({ type, id }) => {
+    if (!validateString(type, 50) || !validateString(id, 100)) return;
     const name = socket.userName || SERVER_NAME;
     socket.broadcast.emit('focus-release', { type, id, user: name });
     broadcastToPeers({ type: 'focus-release', lockType: type, lockId: id, user: name }, null);
   });
   socket.on('realtime-event', (data) => {
+    if (!data || !data.event || !validateString(data.event, 100)) return;
     const msg = { type: 'realtime', _msgId: uuid(), origin: SERVER_ID, event: data.event, data: data.payload };
     socket.broadcast.emit(data.event, data.payload);
     broadcastToPeers(msg, null);
@@ -876,6 +889,9 @@ io.on('connection', (socket) => {
 
   // ── 白板实时同步 ──
   socket.on('whiteboard:add', (el) => {
+    if (!el || !el.id || typeof el.id !== 'string' || el.id.length > 100) return;
+    const elStr = JSON.stringify(el);
+    if (elStr.length > 50000) return; // 单元素最大50KB
     el.createdBy = socket.userName || el.createdBy;
     el.modifiedBy = socket.userName || el.modifiedBy;
     socket.broadcast.emit('whiteboard:op', { type: 'add', elementId: el.id, after: el, userId: socket.userName, timestamp: Date.now() });
@@ -883,12 +899,16 @@ io.on('connection', (socket) => {
   });
 
   socket.on('whiteboard:update', ({ id, patch }) => {
+    if (!id || typeof id !== 'string' || id.length > 100) return;
+    const patchStr = JSON.stringify(patch || {});
+    if (patchStr.length > 50000) return;
     patch.modifiedBy = socket.userName || patch.modifiedBy;
     socket.broadcast.emit('whiteboard:op', { type: 'update', elementId: id, after: patch, userId: socket.userName, timestamp: Date.now() });
     socket.broadcast.emit('whiteboard:update', { id, patch });
   });
 
   socket.on('whiteboard:delete', (id) => {
+    if (!id || typeof id !== 'string' || id.length > 100) return;
     socket.broadcast.emit('whiteboard:op', { type: 'delete', elementId: id, userId: socket.userName, timestamp: Date.now() });
     socket.broadcast.emit('whiteboard:delete', id);
   });
@@ -1026,7 +1046,9 @@ io.on('connection', (socket) => {
   // ── 消息权限申请 ──
   const msgPermissionRequests = [];
   socket.on('admin-request-msg-permission', ({ targetName }) => {
-    const req = { from: socket.userName, target: targetName, time: Date.now() };
+    if (!validateString(targetName, 50) || !targetName.trim()) return;
+    if (!socket.userName) return;
+    const req = { from: socket.userName, target: targetName.trim(), time: Date.now() };
     msgPermissionRequests.push(req);
     addLog(socket.id, socket.userName, 'request msg permission', 'system', `→ ${targetName}`);
     // 通知所有管理员
@@ -1041,6 +1063,7 @@ io.on('connection', (socket) => {
   });
   socket.on('admin-approve-msg-permission', ({ from, approve }) => {
     if (!socket.isAdmin) return;
+    if (!validateString(from, 50)) return;
     const idx = msgPermissionRequests.findIndex(r => r.from === from);
     if (idx >= 0) msgPermissionRequests.splice(idx, 1);
     // 通知申请者
@@ -1086,6 +1109,7 @@ io.on('connection', (socket) => {
   socket.on('user-message-to-admin', (text) => {
     if (!validateString(text, 500)) return;
     if (!socket.userName) return;
+    if (!checkRateLimit(`msgAdmin:${socket.userName}`, 5, 60000)) return;
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
     for (const [sid, u] of onlineUsers) {
@@ -1145,6 +1169,7 @@ io.on('connection', (socket) => {
   socket.on('user-message-to-user', ({ target, text }) => {
     if (!validateEventPayload('user-message-to-user', { target, text }).valid) return;
     if (!socket.userName || !target || !text) return;
+    if (!checkRateLimit(`msgUser:${socket.userName}`, 10, 60000)) return;
     const msg = { from: socket.userName, text: text.trim(), time: Date.now() };
     if (!msg.text) return;
     for (const [sid, u] of onlineUsers) {
@@ -1411,18 +1436,21 @@ fenjingNsp.on('connection', (socket) => {
   console.log(`[fenjing连接] ${socket.id}`);
   socket.emit('fenjing:state-sync', fenjingState);
   socket.on('fenjing:shots-update', (shots) => {
+    if (!Array.isArray(shots) || shots.length > 10000) return;
     fenjingState.shots = shots;
     socket.broadcast.emit('fenjing:shots-update', shots);
     saveFenjingState(fenjingState);
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
   socket.on('fenjing:scenes-update', (scenes) => {
+    if (!Array.isArray(scenes) || scenes.length > 1000) return;
     fenjingState.scenes = scenes;
     socket.broadcast.emit('fenjing:scenes-update', scenes);
     saveFenjingState(fenjingState);
     broadcastToPeers({ type: 'fenjing-sync', state: fenjingState }, null);
   });
   socket.on('fenjing:project-rename', (name) => {
+    if (!validateString(name, 100)) return;
     fenjingState.projectName = name;
     socket.broadcast.emit('fenjing:project-rename', name);
     saveFenjingState(fenjingState);

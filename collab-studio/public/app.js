@@ -393,7 +393,15 @@ function updateAvatar(src) {
   const preview = document.getElementById('settings-avatar-preview');
   if (preview) preview.src = src ? src : '/default-avatar.png';
 }
-if (myAvatar) updateAvatar('/avatars/' + myAvatar);
+// 从缓存加载头像
+(function loadCachedAvatar() {
+  const cached = localStorage.getItem('avatar_' + myName);
+  if (cached) {
+    updateAvatar(cached);
+  } else if (myAvatar) {
+    updateAvatar('/avatars/' + myAvatar + '?v=' + (savedAuth?.avatarVer || Date.now()));
+  }
+})();
 
 socket.on('connect', () => {
   if (myName) {
@@ -1399,32 +1407,50 @@ function setupSettings() {
         return;
       }
       avatarStatus.textContent = '⏳ 上传中...';
-      // 转为 base64
+      // 转为 base64 并压缩
       const reader = new FileReader();
       reader.onload = async () => {
-        avatarStatus.textContent = '⏳ 保存中...';
-        // 通过 HTTP POST 上传
-        try {
-          const res = await fetch('/api/upload-avatar', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: myName, imageData: reader.result })
-          });
-          const data = await res.json();
-          if (data.error) {
-            avatarStatus.textContent = '❌ ' + data.error;
-          } else if (data.ok) {
-            avatarStatus.textContent = '✅ 头像已更新';
-            myAvatar = data.url.replace('/avatars/', '');
-            updateAvatar(data.url);
-            // 更新 sessionStorage
-            const auth = JSON.parse(sessionStorage.getItem('collab-auth') || '{}');
-            auth.avatar = myAvatar;
-            sessionStorage.setItem('collab-auth', JSON.stringify(auth));
+        // 用 canvas 压缩图片（最大 200x200，质量 0.7）
+        const img = new Image();
+        img.onload = async () => {
+          const maxW = 200, maxH = 200;
+          let w = img.width, h = img.height;
+          if (w > maxW) { h = h * maxW / w; w = maxW; }
+          if (h > maxH) { w = w * maxH / h; h = maxH; }
+          const c = document.createElement('canvas');
+          c.width = Math.round(w); c.height = Math.round(h);
+          const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          const compressed = c.toDataURL('image/jpeg', 0.7);
+          avatarStatus.textContent = '⏳ 保存中...';
+          try {
+            const res = await fetch('/api/upload-avatar', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: myName, imageData: compressed })
+            });
+            const data = await res.json();
+            if (data.error) {
+              avatarStatus.textContent = '❌ ' + data.error;
+            } else if (data.ok) {
+              avatarStatus.textContent = '✅ 头像已更新';
+              myAvatar = data.url.replace('/avatars/', '');
+              // 添加版本号防止缓存
+              const avatarUrl = data.url + '?v=' + Date.now();
+              updateAvatar(avatarUrl);
+              // 保存版本号到 sessionStorage
+              const auth = JSON.parse(sessionStorage.getItem('collab-auth') || '{}');
+              auth.avatar = myAvatar;
+              auth.avatarVer = Date.now();
+              sessionStorage.setItem('collab-auth', JSON.stringify(auth));
+              // 保存到 localStorage 做持久缓存
+              localStorage.setItem('avatar_' + myName, avatarUrl);
+            }
+          } catch (e) {
+            avatarStatus.textContent = '❌ 上传失败';
           }
-        } catch (e) {
-          avatarStatus.textContent = '❌ 上传失败';
-        }
+        };
+        img.src = reader.result;
       };
       reader.readAsDataURL(file);
     });

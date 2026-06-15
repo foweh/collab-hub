@@ -207,6 +207,7 @@ app.use(helmet({
   contentSecurityPolicy: false, // Socket.IO needs inline scripts
   crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
+app.use(express.json({ limit: '3mb' }));
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: { origin: '*' },
@@ -264,7 +265,6 @@ app.get('/storyboard/*', (req, res) => {
 });
 
 // ─── 头像上传 ────────────────────────────────────────────
-app.use(express.json({ limit: '3mb' }));
 app.post('/api/upload-avatar', async (req, res) => {
   try {
     const { name, imageData } = req.body;

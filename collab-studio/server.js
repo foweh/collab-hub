@@ -219,6 +219,38 @@ logger.setIO(io);
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
 app.get('/app', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// ─── 头像上传（必须在静态文件之前） ──────────────────
+app.post('/api/upload-avatar', async (req, res) => {
+  try {
+    const { name, imageData } = req.body;
+    if (!name || !validateString(name, 50) || !imageData) return res.json({ error: '缺少参数' });
+    if (!users[name]) return res.json({ error: '用户不存在' });
+    if (!checkRateLimit(`avatar:${name}`, 5, 86400000)) {
+      return res.json({ error: '头像修改过于频繁，每天最多5次' });
+    }
+    const matches = imageData.match(/^data:image\/(png|jpg|jpeg|gif);base64,(.+)$/);
+    if (!matches) return res.json({ error: '不支持的图片格式，仅支持 png/jpg/gif' });
+    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+    const buffer = Buffer.from(matches[2], 'base64');
+    if (buffer.length > 2 * 1024 * 1024) return res.json({ error: '图片过大，最大2MB' });
+    const safeName = name.replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_');
+    const filename = `avatar_${safeName}_${Date.now()}.${ext}`;
+    const filepath = path.join(__dirname, 'public', 'avatars', filename);
+    if (!filepath.startsWith(path.join(__dirname, 'public', 'avatars'))) {
+      return res.json({ error: '文件名无效' });
+    }
+    require('fs').writeFileSync(filepath, buffer);
+    users[name].avatar = filename;
+    auth.saveUsers();
+    console.log(`[头像] ${name} 上传头像: ${filename}`);
+    res.json({ ok: true, url: `/avatars/${filename}` });
+  } catch (e) {
+    console.error('[头像] 上传失败:', e);
+    res.json({ error: '上传失败: ' + e.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/fenjing', express.static(path.join(__dirname, 'public/fenjing')));
 
@@ -264,48 +296,6 @@ app.get('/storyboard/*', (req, res) => {
   res.sendFile(path.join(FENJING_LOCAL_DIST, 'index.html'));
 });
 
-// ─── 头像上传 ────────────────────────────────────────────
-app.post('/api/upload-avatar', async (req, res) => {
-  try {
-    const { name, imageData } = req.body;
-    if (!name || !validateString(name, 50) || !imageData) return res.json({ error: '缺少参数' });
-    if (!users[name]) return res.json({ error: '用户不存在' });
-
-    // 频率限制：每天5次
-    if (!checkRateLimit(`avatar:${name}`, 5, 86400000)) {
-      return res.json({ error: '头像修改过于频繁，每天最多5次' });
-    }
-
-    // 验证图片格式 (data:image/png;base64,...)
-    const matches = imageData.match(/^data:image\/(png|jpg|jpeg|gif);base64,(.+)$/);
-    if (!matches) return res.json({ error: '不支持的图片格式，仅支持 png/jpg/gif' });
-
-    const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
-    const buffer = Buffer.from(matches[2], 'base64');
-    if (buffer.length > 2 * 1024 * 1024) return res.json({ error: '图片过大，最大2MB' });
-
-    // 清理文件名中的特殊字符，防止路径遍历
-    const safeName = name.replace(/[^a-zA-Z0-9_\u4e00-\u9fff]/g, '_');
-    const filename = `avatar_${safeName}_${Date.now()}.${ext}`;
-    const filepath = path.join(__dirname, 'public', 'avatars', filename);
-    // 确保路径在 avatars 目录内（防止 path.join 绕过）
-    if (!filepath.startsWith(path.join(__dirname, 'public', 'avatars'))) {
-      return res.json({ error: '文件名无效' });
-    }
-    require('fs').writeFileSync(filepath, buffer);
-
-    users[name].avatar = filename;
-    auth.saveUsers();
-
-    console.log(`[头像] ${name} 上传头像: ${filename}`);
-    res.json({ ok: true, url: `/avatars/${filename}` });
-  } catch (e) {
-    console.error('[头像] 上传失败:', e);
-    res.json({ error: '上传失败: ' + e.message });
-  }
-});
-
-// ─── UDP 发现 ────────────────────────────────────────────
 let broadcastDiscover = () => {};
 if (!JOIN_TARGET) {
   const udp = dgram.createSocket({ type: 'udp4', reuseAddr: true });

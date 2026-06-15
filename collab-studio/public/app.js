@@ -250,6 +250,11 @@ socket.on('admin-msg-permission-request', (req) => {
   // 管理员收到新申请
   const container = document.getElementById('admin-msg-requests');
   if (container) {
+    const section = container.closest('.admin-section');
+    if (section) section.style.display = '';
+    // 移除"暂无申请"
+    const emptyMsg = container.querySelector('.status-none');
+    if (emptyMsg) emptyMsg.remove();
     const div = document.createElement('div');
     div.className = 'approve-item';
     div.innerHTML = `<span>${esc(req.from)} 请求向 ${esc(req.target)} 发消息</span>
@@ -286,6 +291,21 @@ function approveMsgReq(from, approve) {
     if (el.textContent.includes(from)) el.remove();
   });
 }
+// ─── Toast 消息 ──────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg) {
+  let el = document.getElementById('app-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'app-toast';
+    el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,0.3);transition:opacity 0.3s;max-width:90%;text-align:center;pointer-events:none';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg; el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+}
+
 let adminUsersCache = []; // 缓存用户列表用于实时更新在线状态
 
 socket.on('admin-users-list', (users) => {

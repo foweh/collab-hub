@@ -10,6 +10,17 @@ window.CollabStudio = {
   get serverId() { return serverId; },
 };
 
+// ─── 模块注册 API ──────────────────────────────────────
+// 各个编辑器模块（剧本、故事等）通过此函数注册到 CollabStudio，
+// 使得 openProject 可以正确路由到对应模块。
+window.registerCollabModule = function(name, api) {
+  if (api.open) {
+    CollabStudio.modules[name] = { ...api, openProject: api.open };
+  } else {
+    CollabStudio.modules[name] = api;
+  }
+};
+
 const socket = io();
 CollabStudio.socket = socket;
 const fenjingSocket = io('/fenjing');
@@ -570,6 +581,7 @@ let savedFolderPath = []; // 保存进入回收站前的路径
 
 const trashBtn = document.getElementById('trash-btn');
 const emptyTrashBtn = document.getElementById('empty-trash-btn');
+console.log('清空回收站按钮获取结果:', emptyTrashBtn);
 
 if (trashBtn) {
   trashBtn.addEventListener('click', () => {
@@ -600,8 +612,11 @@ if (trashBtn) {
 
 // 清空回收站
 if (emptyTrashBtn) {
+  console.log('绑定清空回收站按钮点击事件');
   emptyTrashBtn.addEventListener('click', async () => {
+    console.log('清空回收站按钮被点击');
     const deletedProjects = projects.filter(p => p.deleted);
+    console.log('回收站中的项目数量:', deletedProjects.length);
     if (deletedProjects.length === 0) {
       showAlert('回收站已经是空的', '提示', 'ℹ️');
       return;
@@ -612,6 +627,8 @@ if (emptyTrashBtn) {
       });
     }
   });
+} else {
+  console.error('清空回收站按钮未找到!');
 }
 
 // ─── 项目渲染 ───────────────────────────────────────────
@@ -751,7 +768,7 @@ function renderProjects() {
         confirmBtn.addEventListener('click', () => {
           const itemName = nameInput.value.trim() || '未命名';
           overlay.remove();
-          const projectData = type === 'folder' ? { children: [] } : {};
+          const projectData = type === 'folder' ? { children: [] } : undefined;
           const currentFolderId = currentFolderPath.length > 0 ? currentFolderPath[currentFolderPath.length - 1].id : null;
           socket.emit('project-create', { 
             type: type === 'storyboard' ? 'project' : type, 

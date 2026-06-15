@@ -629,7 +629,9 @@ io.on('connection', (socket) => {
       id: uuid().slice(0, 12), 
       type: data.type, 
       name, 
-      data: data.data || projectSvc.getDefaultData(data.type), 
+      data: data.data != null && typeof data.data === 'object' && Object.keys(data.data).length > 0
+        ? data.data
+        : projectSvc.getDefaultData(data.type), 
       createdAt: Date.now(), 
       updatedAt: Date.now(), 
       owner: socket.userName || SERVER_NAME, 

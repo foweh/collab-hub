@@ -739,11 +739,18 @@ function renderOnlineUsers() {
         if (isAdmin) {
           openChat(targetName);
         } else {
-          // 非管理员需要申请
-          if (confirm('需要向管理员申请消息权限。是否发送申请？')) {
-            socket.emit('admin-request-msg-permission', { targetName });
-            showToast('📨 已向管理员发送申请');
-          }
+          // 非管理员：先检查是否已有权限
+          socket.emit('check-message-permission', { target: targetName });
+          socket.once('message-permission-status', ({ permitted }) => {
+            if (permitted) {
+              openChat(targetName);
+            } else {
+              if (confirm('需要向管理员申请消息权限。是否发送申请？')) {
+                socket.emit('admin-request-msg-permission', { targetName });
+                showToast('📨 已向管理员发送申请');
+              }
+            }
+          });
         }
       });
     });

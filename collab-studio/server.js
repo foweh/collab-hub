@@ -1070,13 +1070,17 @@ io.on('connection', (socket) => {
   socket.on('admin-approve-msg-permission', ({ from, approve }) => {
     if (!socket.isAdmin) return;
     if (!validateString(from, 50)) return;
+    const req = msgPermissionRequests.find(r => r.from === from);
     const idx = msgPermissionRequests.findIndex(r => r.from === from);
     if (idx >= 0) msgPermissionRequests.splice(idx, 1);
     // 通知申请者
     for (const [sid, u] of onlineUsers) {
       if (u.name === from) {
-        if (approve) {
-          io.to(sid).emit('msg-permission-granted', { adminName: socket.userName });
+        if (approve && req) {
+          const key = `${from}→${req.target}`;
+          messagePermissions[key] = true;
+          saveMsgPermissions();
+          io.to(sid).emit('msg-permission-granted', { adminName: socket.userName, target: req.target });
         } else {
           io.to(sid).emit('msg-permission-denied', { adminName: socket.userName });
         }

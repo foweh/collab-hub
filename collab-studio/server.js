@@ -142,7 +142,7 @@ function broadcastOnlineUsers() {
   const list = [];
   for (const [sid, u] of onlineUsers) {
     const userObj = users[u.name];
-    list.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false, role: userObj?.role || (u.isAdmin ? 'editor' : 'commenter') });
+    list.push({ id: sid, name: u.name, joinedAt: u.joinedAt, isAdmin: u.isAdmin || false, role: userObj?.role || (u.isAdmin ? 'editor' : 'commenter'), avatar: userObj?.avatar || '' });
   }
   io.emit('online-users', list);
 }
@@ -243,6 +243,8 @@ app.post('/api/upload-avatar', async (req, res) => {
     require('fs').writeFileSync(filepath, buffer);
     users[name].avatar = filename;
     auth.saveUsers();
+    // 广播头像变更给所有在线客户端
+    io.emit('user-avatar-updated', { name, avatar: filename });
     console.log(`[头像] ${name} 上传头像: ${filename}`);
     res.json({ ok: true, url: `/avatars/${filename}` });
   } catch (e) {
@@ -538,6 +540,13 @@ io.on('connection', (socket) => {
     if (!isAdminUser && !checkRateLimit(`login:${ip}`, 20, 60000)) {
       console.log(`[login] 失败: 登录频繁 IP=${ip}`);
       socket.emit('login-error', '登录尝试过于频繁，请稍后再试');
+      socket.disconnect();
+      return;
+    }
+    // 针对特定用户的暴力破解防护：每分钟5次
+    if (!isAdminUser && !checkRateLimit(`loginUser:${userName}`, 5, 60000)) {
+      console.log(`[login] 失败: 用户 "${userName}" 登录频繁`);
+      socket.emit('login-error', '该账户登录尝试过于频繁，请稍后再试');
       socket.disconnect();
       return;
     }

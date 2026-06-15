@@ -669,7 +669,7 @@ function renderOnlineUsers() {
       const bgColor = colors[colorIdx];
       const roleIcon = u.isAdmin ? '👑' : '';
       return `<div class="online-user-card">
-        <div class="online-user-avatar" style="background:${bgColor}">${esc(initial)}</div>
+        <div class="online-user-avatar" style="background:${bgColor};${u.avatar ? 'background-image:url(/avatars/' + u.avatar + '?v=' + Date.now() + ');background-size:cover;background-position:center' : ''}">${u.avatar ? '' : esc(initial)}</div>
         <div class="online-user-info">
           <div class="online-user-name">${esc(u.name)} ${roleIcon}</div>
           <div class="online-user-status">在线</div>
@@ -700,6 +700,15 @@ function renderOnlineUsers() {
   const headerCount = document.getElementById('online-count-header');
   if (headerCount) headerCount.textContent = onlineUsers.length;
 }
+
+// 实时同步头像变更
+socket.on('user-avatar-updated', ({ name, avatar }) => {
+  const user = onlineUsers.find(u => u.name === name);
+  if (user) {
+    user.avatar = avatar;
+    renderOnlineUsers();
+  }
+});
 
 function updatePeersUI() {
   peerStatusArea.innerHTML = '';

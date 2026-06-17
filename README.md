@@ -69,8 +69,8 @@ collab-studio/
 
 | 项目 | 说明 |
 |------|------|
-| [`fenjing/`](fenjing/) | 闪电分镜 — 在线分镜脚本工具 |
-| [`fenjing-local/`](fenjing-local/) | 闪电分镜桌面版 (Vue 3 + TypeScript + Pinia) |
+| [`fenjing/`](fenjing/) | 分镜工具 — 在线分镜脚本工具 |
+| [`fenjing-local/`](fenjing-local/) | 分镜工具桌面版 (Vue 3 + TypeScript + Pinia) |
 | [`storyboard-collab/`](storyboard-collab/) | 协作分镜编辑器 |
 | [`github-projects/`](github-projects/) | GitHub 小工具集 — 代码片段、资料统计、PR 审查、周报等 |
 

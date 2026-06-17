@@ -1,0 +1,932 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分镜工具 — Storyboard Tool</title>
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0b0b14;
+  --bg-card: #151525;
+  --bg-card-hover: #1c1c32;
+  --bg-input: #0f0f1f;
+  --border: #252540;
+  --border-focus: #7c3aed;
+  --text: #e2e2f0;
+  --text-dim: #8888aa;
+  --text-muted: #5a5a7a;
+  --accent: #7c3aed;
+  --accent-light: #a78bfa;
+  --accent-glow: rgba(124, 58, 237, 0.2);
+  --cyan: #06b6d4;
+  --cyan-glow: rgba(6, 182, 212, 0.2);
+  --red: #ef4444;
+  --red-glow: rgba(239, 68, 68, 0.2);
+  --amber: #f59e0b;
+  --green: #10b981;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 4px 24px rgba(0,0,0,.4);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* ===== Layout ===== */
+#app {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  grid-template-rows: 60px 1fr;
+  height: 100vh;
+}
+.header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  z-index: 10;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+.logo .accent { color: var(--accent-light); }
+.project-name {
+  font-size: 14px;
+  color: var(--text-dim);
+  padding: 4px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color .15s;
+  min-width: 180px;
+}
+.project-name:focus { border-color: var(--border-focus); }
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.sidebar h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.sidebar-section { display: flex; flex-direction: column; gap: 8px; }
+
+/* ===== Buttons ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font);
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--text-dim); background: var(--bg-card-hover); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.btn-primary:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+.btn-cyan {
+  background: transparent;
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.btn-cyan:hover {
+  background: var(--cyan-glow);
+  box-shadow: 0 0 12px var(--cyan-glow);
+}
+.btn-danger { background: transparent; border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: var(--red-glow); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-icon { padding: 6px 8px; min-width: 32px; justify-content: center; }
+
+/* ===== Main Content ===== */
+.main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.toolbar-stats {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.toolbar-stats span { color: var(--accent-light); font-weight: 600; }
+
+.shot-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.shot-list-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  gap: 12px;
+  font-size: 15px;
+}
+.shot-list-empty .empty-icon { font-size: 48px; opacity: .4; }
+.shot-list-empty button { margin-top: 8px; }
+
+/* ===== Shot Card ===== */
+.shot-card {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: all .15s;
+  cursor: grab;
+  position: relative;
+}
+.shot-card:hover { border-color: var(--text-dim); background: var(--bg-card-hover); }
+.shot-card.dragging {
+  opacity: .5;
+  border-style: dashed;
+  border-color: var(--accent);
+}
+.shot-card.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.shot-thumb {
+  width: 100px;
+  height: 70px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  border: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+}
+.shot-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.shot-thumb .scene-num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.shot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.shot-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.shot-scene {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.shot-duration {
+  font-size: 12px;
+  color: var(--cyan);
+  background: var(--cyan-glow);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.shot-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.shot-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.shot-meta span { display: flex; align-items: center; gap: 4px; }
+
+.shot-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tag-purple { background: var(--accent-glow); color: var(--accent-light); }
+.tag-cyan { background: var(--cyan-glow); color: var(--cyan); }
+.tag-amber { background: rgba(245,158,11,.15); color: var(--amber); }
+.tag-green { background: rgba(16,185,129,.15); color: var(--green); }
+.tag-red { background: var(--red-glow); color: var(--red); }
+
+.shot-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+/* ===== Modal ===== */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.7);
+  z-index: 100;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  width: 520px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+.modal h2 {
+  font-size: 18px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal h2 .icon { font-size: 22px; }
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.form-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.form-group input,
+.form-group textarea,
+.form-group select {
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s;
+  resize: vertical;
+}
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus { border-color: var(--border-focus); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ===== Color Tag Picker ===== */
+.tag-options { display: flex; gap: 8px; flex-wrap: wrap; }
+.tag-opt {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all .15s;
+}
+.tag-opt:hover { transform: scale(1.15); }
+.tag-opt.selected { border-color: #fff; box-shadow: 0 0 8px currentColor; }
+
+/* ===== Toast ===== */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  z-index: 200;
+  transition: transform .25s ease;
+  pointer-events: none;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ===== Sort handle ===== */
+.sort-handle {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.shot-card:hover .sort-handle { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">🎬 <span class="accent">分镜工具</span></span>
+      <input class="project-name" id="projectName" value="未命名项目" maxlength="40" placeholder="项目名称">
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-cyan btn-sm" onclick="exportData()" title="导出 JSON">📥 导出</button>
+      <button class="btn btn-sm" onclick="importData()" title="导入 JSON">📤 导入</button>
+      <button class="btn btn-sm" onclick="clearAll()" title="清空所有镜头">🗑️ 清空</button>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <h3>📋 操作</h3>
+      <button class="btn btn-primary" onclick="openShotModal()">➕ 添加镜头</button>
+      <button class="btn btn-cyan btn-sm" onclick="duplicateAll()">📋 复制全部</button>
+    </div>
+    <div class="sidebar-section">
+      <h3>🎨 筛选标签</h3>
+      <button class="btn btn-sm" onclick="filterByTag('all')" style="border-color:var(--accent-light);color:var(--accent-light)">全部</button>
+      <button class="btn btn-sm tag-purple" onclick="filterByTag('purple')" style="justify-content:center">🟣 内景</button>
+      <button class="btn btn-sm tag-cyan" onclick="filterByTag('cyan')" style="justify-content:center">🔵 外景</button>
+      <button class="btn btn-sm tag-amber" onclick="filterByTag('amber')" style="justify-content:center">🟠 特效</button>
+      <button class="btn btn-sm tag-green" onclick="filterByTag('green')" style="justify-content:center">🟢 过场</button>
+    </div>
+    <div class="sidebar-section">
+      <h3>💡 快捷键</h3>
+      <p style="font-size:12px;color:var(--text-muted);line-height:2">
+        <kbd style="background:var(--bg-input);padding:1px 6px;border-radius:3px;border:1px solid var(--border)">N</kbd> 新建镜头<br>
+        <kbd style="background:var(--bg-input);padding:1px 6px;border-radius:3px;border:1px solid var(--border)">Ctrl+S</kbd> 保存快照<br>
+        <kbd style="background:var(--bg-input);padding:1px 6px;border-radius:3px;border:1px solid var(--border)">Del</kbd> 删除选中
+      </p>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="toolbar">
+      <span style="font-size:13px;color:var(--text-dim)">镜头列表</span>
+      <span class="toolbar-stats">共 <span id="shotCount">0</span> 个镜头 · 总时长 <span id="totalDuration">0s</span></span>
+    </div>
+    <div class="shot-list" id="shotList">
+      <div class="shot-list-empty" id="emptyState">
+        <span class="empty-icon">🎬</span>
+        <span>还没有添加镜头</span>
+        <button class="btn btn-primary" onclick="openShotModal()">创建第一个镜头</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Shot Edit Modal -->
+<div class="modal-overlay" id="shotModal">
+  <div class="modal">
+    <h2><span class="icon" id="modalIcon">🎬</span> <span id="modalTitle">新建镜头</span></h2>
+    <input type="hidden" id="editShotId">
+    <div class="form-row">
+      <div class="form-group">
+        <label>场次编号</label>
+        <input id="editScene" placeholder="如: 1-A" maxlength="20">
+      </div>
+      <div class="form-group">
+        <label>镜头时长</label>
+        <input id="editDuration" placeholder="如: 5s / 12s" maxlength="10">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>画面描述</label>
+      <textarea id="editDesc" rows="3" placeholder="描述这个镜头的画面内容、构图、光线…"></textarea>
+    </div>
+    <div class="form-group">
+      <label>运镜方式</label>
+      <input id="editCamera" placeholder="如: 固定 / 跟拍 / 摇镜 / 推拉…" maxlength="60">
+    </div>
+    <div class="form-group">
+      <label>对白 / 旁白</label>
+      <textarea id="editDialogue" rows="2" placeholder="人物对白或旁白内容…"></textarea>
+    </div>
+    <div class="form-group">
+      <label>备注</label>
+      <input id="editNotes" placeholder="道具、服装、特效等备注" maxlength="120">
+    </div>
+    <div class="form-group">
+      <label>标签颜色</label>
+      <div class="tag-options" id="tagOptions">
+        <span class="tag-opt selected" data-tag="" style="background:#888;border:2px solid #fff" title="无标签"></span>
+        <span class="tag-opt" data-tag="purple" style="background:#7c3aed" title="内景"></span>
+        <span class="tag-opt" data-tag="cyan" style="background:#06b6d4" title="外景"></span>
+        <span class="tag-opt" data-tag="amber" style="background:#f59e0b" title="特效"></span>
+        <span class="tag-opt" data-tag="green" style="background:#10b981" title="过场"></span>
+        <span class="tag-opt" data-tag="red" style="background:#ef4444" title="关键"></span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeShotModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveShot()">💾 保存镜头</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Hidden file input for import -->
+<input type="file" id="importFile" accept=".json" style="display:none" onchange="handleImport(event)">
+
+<script>
+// ===== State =====
+let shots = [];
+let currentFilter = 'all';
+let editingShotId = null;
+let dragIndex = null;
+
+// ===== Shot Model =====
+function createShot(data = {}) {
+  return {
+    id: 'shot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    scene: data.scene || '',
+    duration: data.duration || '',
+    desc: data.desc || '',
+    camera: data.camera || '',
+    dialogue: data.dialogue || '',
+    notes: data.notes || '',
+    tag: data.tag || '',
+    createdAt: data.createdAt || Date.now()
+  };
+}
+
+// ===== Persistence =====
+const STORAGE_KEY = 'storyboard_tool_shots';
+const PROJECT_KEY = 'storyboard_tool_project';
+
+function saveShots() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(shots));
+}
+
+function loadShots() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) shots = JSON.parse(raw);
+  } catch(e) { shots = []; }
+}
+
+function saveProjectName() {
+  localStorage.setItem(PROJECT_KEY, document.getElementById('projectName').value);
+}
+
+document.getElementById('projectName').addEventListener('input', saveProjectName);
+
+// ===== Render =====
+function renderShotList() {
+  const list = document.getElementById('shotList');
+  const empty = document.getElementById('emptyState');
+  const filtered = currentFilter === 'all'
+    ? shots
+    : shots.filter(s => s.tag === currentFilter);
+
+  document.getElementById('shotCount').textContent = shots.length;
+
+  // Total duration calc
+  let totalSec = 0;
+  shots.forEach(s => {
+    const m = (s.duration || '').match(/(\d+)/);
+    if (m) totalSec += parseInt(m[1]);
+  });
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  document.getElementById('totalDuration').textContent =
+    mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  if (filtered.length === 0) {
+    list.innerHTML = '';
+    list.appendChild(empty);
+    empty.style.display = 'flex';
+    return;
+  }
+
+  empty.style.display = 'none';
+  list.innerHTML = filtered.map((shot, idx) => {
+    const tagLabel = { purple: '内景', cyan: '外景', amber: '特效', green: '过场', red: '关键' }[shot.tag] || '';
+    const sceneNum = shot.scene || '?';
+    return `
+      <div class="shot-card" draggable="true"
+           data-shot-id="${shot.id}"
+           ondragstart="onDragStart(event, '${shot.id}')"
+           ondragover="onDragOver(event)"
+           ondragleave="onDragLeave(event)"
+           ondrop="onDrop(event, '${shot.id}')"
+           ondragend="onDragEnd(event)">
+        <span class="sort-handle">⋮⋮</span>
+        <div class="shot-thumb" onclick="openShotModal('${shot.id}')">
+          <span class="scene-num">${sceneNum}</span>
+          🎞️
+        </div>
+        <div class="shot-info">
+          <div class="shot-title-row">
+            <span class="shot-scene">${shot.scene || '未命名字段'}</span>
+            ${shot.duration ? `<span class="shot-duration">⏱ ${shot.duration}</span>` : ''}
+            ${tagLabel ? `<span class="shot-tag tag-${shot.tag}">${tagLabel}</span>` : ''}
+          </div>
+          ${shot.desc ? `<div class="shot-desc">${escHtml(shot.desc)}</div>` : ''}
+          <div class="shot-meta">
+            ${shot.camera ? `<span>🎥 ${escHtml(shot.camera)}</span>` : ''}
+            ${shot.dialogue ? `<span>💬 ${escHtml(shot.dialogue)}</span>` : ''}
+            ${shot.notes ? `<span>📌 ${escHtml(shot.notes)}</span>` : ''}
+          </div>
+        </div>
+        <div class="shot-actions">
+          <button class="btn btn-sm btn-icon" onclick="openShotModal('${shot.id}')" title="编辑">✏️</button>
+          <button class="btn btn-sm btn-icon" onclick="duplicateShot('${shot.id}')" title="复制">📋</button>
+          <button class="btn btn-sm btn-icon btn-danger" onclick="deleteShot('${shot.id}')" title="删除">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Re-bind drag events for the filtered items
+  bindDragEvents();
+}
+
+function escHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function bindDragEvents() {
+  // drag events are inline, this is a no-op placeholder
+}
+
+function updateStats() {
+  renderShotList();
+}
+
+// ===== Shot CRUD =====
+function openShotModal(shotId) {
+  const modal = document.getElementById('shotModal');
+  editingShotId = shotId || null;
+
+  if (shotId) {
+    const shot = shots.find(s => s.id === shotId);
+    if (!shot) return;
+    document.getElementById('modalTitle').textContent = '编辑镜头';
+    document.getElementById('modalIcon').textContent = '✏️';
+    document.getElementById('editShotId').value = shot.id;
+    document.getElementById('editScene').value = shot.scene;
+    document.getElementById('editDuration').value = shot.duration;
+    document.getElementById('editDesc').value = shot.desc;
+    document.getElementById('editCamera').value = shot.camera;
+    document.getElementById('editDialogue').value = shot.dialogue;
+    document.getElementById('editNotes').value = shot.notes;
+    selectTagOption(shot.tag);
+  } else {
+    document.getElementById('modalTitle').textContent = '新建镜头';
+    document.getElementById('modalIcon').textContent = '🎬';
+    document.getElementById('editShotId').value = '';
+    document.getElementById('editScene').value = '';
+    document.getElementById('editDuration').value = '';
+    document.getElementById('editDesc').value = '';
+    document.getElementById('editCamera').value = '';
+    document.getElementById('editDialogue').value = '';
+    document.getElementById('editNotes').value = '';
+    selectTagOption('');
+  }
+
+  modal.classList.add('open');
+  setTimeout(() => document.getElementById('editScene').focus(), 100);
+}
+
+function closeShotModal() {
+  document.getElementById('shotModal').classList.remove('open');
+  editingShotId = null;
+}
+
+function saveShot() {
+  const id = document.getElementById('editShotId').value;
+  const data = {
+    scene: document.getElementById('editScene').value.trim(),
+    duration: document.getElementById('editDuration').value.trim(),
+    desc: document.getElementById('editDesc').value.trim(),
+    camera: document.getElementById('editCamera').value.trim(),
+    dialogue: document.getElementById('editDialogue').value.trim(),
+    notes: document.getElementById('editNotes').value.trim(),
+    tag: document.querySelector('#tagOptions .selected').dataset.tag
+  };
+
+  if (id) {
+    const idx = shots.findIndex(s => s.id === id);
+    if (idx !== -1) {
+      shots[idx] = { ...shots[idx], ...data };
+      toast('镜头已更新 ✓');
+    }
+  } else {
+    shots.push(createShot(data));
+    toast('镜头已添加 ✓');
+  }
+
+  saveShots();
+  closeShotModal();
+  renderShotList();
+}
+
+function deleteShot(shotId) {
+  if (!confirm('确定删除这个镜头吗？')) return;
+  shots = shots.filter(s => s.id !== shotId);
+  saveShots();
+  renderShotList();
+  toast('镜头已删除');
+}
+
+function duplicateShot(shotId) {
+  const shot = shots.find(s => s.id === shotId);
+  if (!shot) return;
+  const clone = createShot({
+    ...shot,
+    scene: (shot.scene || '') + ' (副本)',
+    id: undefined,
+    createdAt: undefined
+  });
+  shots.push(clone);
+  saveShots();
+  renderShotList();
+  toast('镜头已复制 ✓');
+}
+
+function duplicateAll() {
+  if (shots.length === 0) return toast('没有可复制的镜头');
+  const clones = shots.map(s => createShot({
+    ...s,
+    scene: (s.scene || '') + ' (副本)',
+    id: undefined,
+    createdAt: undefined
+  }));
+  shots.push(...clones);
+  saveShots();
+  renderShotList();
+  toast(`已复制 ${clones.length} 个镜头 ✓`);
+}
+
+function clearAll() {
+  if (!confirm('确定清空所有镜头吗？此操作不可撤销！')) return;
+  shots = [];
+  saveShots();
+  renderShotList();
+  toast('已清空所有镜头');
+}
+
+// ===== Tag Selection =====
+document.getElementById('tagOptions').addEventListener('click', (e) => {
+  const opt = e.target.closest('.tag-opt');
+  if (!opt) return;
+  selectTagOption(opt.dataset.tag);
+});
+
+function selectTagOption(tag) {
+  document.querySelectorAll('#tagOptions .tag-opt').forEach(el => {
+    el.classList.toggle('selected', el.dataset.tag === tag);
+  });
+}
+
+// ===== Filter =====
+function filterByTag(tag) {
+  currentFilter = tag;
+  renderShotList();
+  toast(tag === 'all' ? '显示全部镜头' : `筛选: ${tag}`);
+}
+
+// ===== Drag & Drop =====
+function onDragStart(e, shotId) {
+  dragIndex = shots.findIndex(s => s.id === shotId);
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', shotId);
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const card = e.target.closest('.shot-card');
+  if (card) card.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+  const card = e.target.closest('.shot-card');
+  if (card) card.classList.remove('drag-over');
+}
+
+function onDrop(e, targetId) {
+  e.preventDefault();
+  const card = e.target.closest('.shot-card');
+  if (card) card.classList.remove('drag-over');
+
+  const targetIndex = shots.findIndex(s => s.id === targetId);
+  if (dragIndex === null || dragIndex === targetIndex) return;
+
+  const [moved] = shots.splice(dragIndex, 1);
+  shots.splice(targetIndex, 0, moved);
+  dragIndex = null;
+  saveShots();
+  renderShotList();
+}
+
+function onDragEnd(e) {
+  document.querySelectorAll('.shot-card').forEach(c => c.classList.remove('dragging', 'drag-over'));
+  dragIndex = null;
+}
+
+// ===== Export / Import =====
+function exportData() {
+  const data = {
+    projectName: document.getElementById('projectName').value,
+    shots: shots,
+    exportedAt: new Date().toISOString()
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (data.projectName || '分镜') + '_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('导出成功 ✓');
+}
+
+function importData() {
+  document.getElementById('importFile').click();
+}
+
+function handleImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.shots || !Array.isArray(data.shots)) throw new Error('Invalid format');
+      if (!confirm(`导入 ${data.shots.length} 个镜头？当前 ${shots.length} 个将被替换。`)) return;
+      shots = data.shots;
+      if (data.projectName) document.getElementById('projectName').value = data.projectName;
+      saveShots();
+      saveProjectName();
+      renderShotList();
+      toast(`已导入 ${shots.length} 个镜头 ✓`);
+    } catch(err) {
+      toast('导入失败：文件格式不正确');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ===== Keyboard Shortcuts =====
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    openShotModal();
+  }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Don't auto-delete; too dangerous without selection UI
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveShots();
+    exportData();
+  }
+});
+
+// ===== Toast =====
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ===== Close modal on overlay click =====
+document.getElementById('shotModal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeShotModal();
+});
+
+// ===== Close modal on Escape =====
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeShotModal();
+});
+
+// ===== Init =====
+(function init() {
+  const savedProject = localStorage.getItem(PROJECT_KEY);
+  if (savedProject) document.getElementById('projectName').value = savedProject;
+  loadShots();
+  renderShotList();
+})();
+</script>
+
+</body>
+</html>
